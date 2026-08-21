@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SinkOS V2 — Public Beta 1</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-deep: #080b10;
+    --bg-panel: rgba(255,255,255,0.055);
+    --bg-panel-strong: rgba(255,255,255,0.09);
+    --border-glass: rgba(255,255,255,0.14);
+    --sky: #5ec8e8;
+    --sky-soft: #8fdcf2;
+    --gloss: #eaf6ff;
+    --amber: #ffb020;
+    --leaf: #7ee0b8;
+    --text-hi: #f3f8fb;
+    --text-mid: rgba(243,248,251,0.68);
+    --text-low: rgba(243,248,251,0.42);
+
+    --teal: #33c9c0;
+    --violet: #9b8cff;
+    --red: #ff5c6c;
+    --gold: #ffb020;
+  }
+
+  * { box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    margin: 0;
+    background: var(--bg-deep);
+    color: var(--text-hi);
+    font-family: 'Inter', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  /* Ambient sky wash — Frutiger Aero atmosphere, kept quiet */
+  .sky-wash {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background:
+      radial-gradient(ellipse 900px 500px at 20% -10%, rgba(94,200,232,0.16), transparent 60%),
+      radial-gradient(ellipse 700px 500px at 100% 10%, rgba(155,140,255,0.10), transparent 55%),
+      radial-gradient(ellipse 800px 600px at 50% 120%, rgba(126,224,184,0.08), transparent 55%);
+  }
+
+  .grain {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    opacity: 0.03;
+    pointer-events: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  a { color: inherit; }
+
+  /* ---------- Top bar ---------- */
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 14px 0;
+  }
+  .taskbar {
+    display: flex;
+    align-items: center;
+    gap: 22px;
+    padding: 9px 20px;
+    border-radius: 999px;
+    background: rgba(15,19,26,0.55);
+    border: 1px solid var(--border-glass);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.06);
+  }
+  .taskbar .orb {
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 32% 28%, #fff, var(--sky-soft) 38%, var(--sky) 75%, #1e6f8c 100%);
+    box-shadow: 0 0 14px rgba(94,200,232,0.55), inset 0 -2px 4px rgba(0,0,0,0.25);
+    flex-shrink: 0;
+  }
+  .taskbar .wordmark {
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 600;
+    font-size: 14px;
+    letter-spacing: 0.2px;
+    margin-right: 4px;
+  }
+  .taskbar nav {
+    display: flex;
+    gap: 18px;
+    font-size: 13px;
+    color: var(--text-mid);
+  }
+  .taskbar nav a { text-decoration: none; transition: color .15s ease; }
+  .taskbar nav a:hover { color: var(--text-hi); }
+  .taskbar .build-pill {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--amber);
+    background: rgba(255,176,32,0.12);
+    border: 1px solid rgba(255,176,32,0.35);
+    padding: 4px 10px;
+    border-radius: 999px;
+    letter-spacing: 0.3px;
+  }
+
+  @media (max-width: 720px) {
+    .taskbar nav { display: none; }
+  }
+
+  /* ---------- Hero ---------- */
+  .hero {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 64px 20px 40px;
+    text-align: center;
+  }
+
+  .eyebrow {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--sky-soft);
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    margin-bottom: 18px;
+    opacity: 0.85;
+  }
+
+  .hero h1 {
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+    font-size: clamp(34px, 6vw, 62px);
+    line-height: 1.05;
+    letter-spacing: -0.5px;
+    margin: 0 0 16px;
+    max-width: 800px;
+  }
+  .hero h1 span {
+    background: linear-gradient(120deg, var(--sky-soft), var(--gloss) 45%, var(--sky));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  .hero .lede {
+    font-size: 16px;
+    color: var(--text-mid);
+    max-width: 520px;
+    line-height: 1.6;
+    margin: 0 0 40px;
+  }
+
+  /* ---------- Signature element: System Info dialog ---------- */
+  .sysinfo {
+    width: min(560px, 100%);
+    border-radius: 18px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.09), rgba(255,255,255,0.03));
+    border: 1px solid var(--border-glass);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    box-shadow: 0 30px 70px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.12);
+    overflow: hidden;
+    text-align: left;
+    position: relative;
+  }
+  .sysinfo::before {
+    /* glossy highlight sweep — restrained Frutiger Aero signature */
+    content: "";
+    position: absolute;
+    top: 0; left: -30%;
+    width: 60%; height: 100%;
+    background: linear-gradient(100deg, transparent, rgba(255,255,255,0.06) 45%, transparent 55%);
+    pointer-events: none;
+  }
+  .sysinfo-titlebar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    background: rgba(255,255,255,0.04);
+    border-bottom: 1px solid var(--border-glass);
+  }
+  .sysinfo-titlebar .dots { display: flex; gap: 7px; }
+  .sysinfo-titlebar .dots span {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: rgba(255,255,255,0.18);
+  }
+  .sysinfo-titlebar .dots span:nth-child(1) { background: var(--red); opacity: 0.8; }
+  .sysinfo-titlebar .dots span:nth-child(2) { background: var(--amber); opacity: 0.8; }
+  .sysinfo-titlebar .dots span:nth-child(3) { background: var(--leaf); opacity: 0.8; }
+  .sysinfo-titlebar .filename {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px;
+    color: var(--text-low);
+  }
+
+  .sysinfo-body { padding: 26px 26px 22px; }
+
+  .sysinfo-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    padding: 10px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.07);
+    font-size: 13.5px;
+  }
+  .sysinfo-row:last-of-type { border-bottom: none; }
+  .sysinfo-row .k { color: var(--text-low); font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+  .sysinfo-row .v { color: var(--text-hi); font-weight: 500; text-align: right; }
+
+  .status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.4px;
+    color: var(--amber);
+    background: rgba(255,176,32,0.14);
+    border: 1px solid rgba(255,176,32,0.4);
+    padding: 3px 10px 3px 8px;
+    border-radius: 999px;
+  }
+  .status-pill .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--amber);
+    box-shadow: 0 0 6px var(--amber);
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
+  }
+
+  .sysinfo-note {
+    margin: 18px 0 0;
+    padding: 14px 15px;
+    border-radius: 12px;
+    background: rgba(94,200,232,0.07);
+    border: 1px solid rgba(94,200,232,0.22);
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--text-mid);
+  }
+  .sysinfo-note strong { color: var(--text-hi); font-weight: 600; }
+
+  .hero-ctas {
+    display: flex;
+    gap: 12px;
+    margin-top: 34px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .btn {
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    padding: 13px 24px;
+    border-radius: 12px;
+    border: 1px solid transparent;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    transition: transform .15s ease, box-shadow .15s ease, background .15s ease;
+  }
+  .btn-primary {
+    background: linear-gradient(135deg, var(--sky-soft), var(--sky));
+    color: #06222c;
+    box-shadow: 0 10px 26px rgba(94,200,232,0.35);
+  }
+  .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 14px 32px rgba(94,200,232,0.5); }
+  .btn-ghost {
+    background: rgba(255,255,255,0.05);
+    border-color: var(--border-glass);
+    color: var(--text-hi);
+  }
+  .btn-ghost:hover { background: rgba(255,255,255,0.1); transform: translateY(-2px); }
+
+  /* ---------- Modules ---------- */
+  .modules {
+    position: relative;
+    z-index: 1;
+    max-width: 1080px;
+    margin: 88px auto 0;
+    padding: 0 20px;
+  }
+  .section-head {
+    text-align: center;
+    margin-bottom: 36px;
+  }
+  .section-head .eyebrow { margin-bottom: 10px; }
+  .section-head h2 {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: clamp(22px, 3vw, 30px);
+    font-weight: 600;
+    margin: 0 0 8px;
+  }
+  .section-head p {
+    color: var(--text-mid);
+    font-size: 14.5px;
+    max-width: 480px;
+    margin: 0 auto;
+    line-height: 1.6;
+  }
+
+  .module-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 14px;
+  }
+  .module-card {
+    padding: 20px;
+    border-radius: 16px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border-glass);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    transition: transform .18s ease, background .18s ease, border-color .18s ease;
+    --mod-color: var(--sky);
+  }
+  .module-card:hover {
+    transform: translateY(-3px);
+    background: var(--bg-panel-strong);
+    border-color: color-mix(in srgb, var(--mod-color) 45%, var(--border-glass));
+  }
+  .module-card .mod-dot {
+    width: 9px; height: 9px; border-radius: 50%;
+    background: var(--mod-color);
+    box-shadow: 0 0 10px var(--mod-color);
+    margin-bottom: 14px;
+  }
+  .module-card h3 {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 15.5px;
+    font-weight: 600;
+    margin: 0 0 6px;
+  }
+  .module-card p {
+    font-size: 13px;
+    color: var(--text-mid);
+    line-height: 1.55;
+    margin: 0;
+  }
+  .module-card.nexus  { --mod-color: var(--teal); }
+  .module-card.chat   { --mod-color: var(--sky); }
+  .module-card.calls  { --mod-color: var(--sky-soft); }
+  .module-card.slides { --mod-color: var(--violet); }
+  .module-card.charts { --mod-color: var(--leaf); }
+  .module-card.camera { --mod-color: var(--gold); }
+
+  /* ---------- Beta notice ---------- */
+  .beta-strip {
+    position: relative;
+    z-index: 1;
+    max-width: 780px;
+    margin: 88px auto 0;
+    padding: 0 20px;
+  }
+  .beta-card {
+    border-radius: 18px;
+    padding: 30px 30px 28px;
+    background: linear-gradient(160deg, rgba(255,176,32,0.09), rgba(255,255,255,0.03));
+    border: 1px solid rgba(255,176,32,0.28);
+  }
+  .beta-card .beta-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+  .beta-card .beta-head .status-pill { position: static; }
+  .beta-card h3 {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 17px;
+    font-weight: 600;
+    margin: 0;
+  }
+  .beta-card p {
+    font-size: 14px;
+    line-height: 1.7;
+    color: var(--text-mid);
+    margin: 0 0 12px;
+  }
+  .beta-card p:last-child { margin-bottom: 0; }
+  .beta-card .highlight-date {
+    color: var(--gloss);
+    font-weight: 600;
+  }
+  .beta-card a.feedback-link {
+    color: var(--sky-soft);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  /* ---------- Footer ---------- */
+  footer {
+    position: relative;
+    z-index: 1;
+    margin-top: 100px;
+    padding: 34px 20px 44px;
+    text-align: center;
+  }
+  footer .foot-links {
+    display: flex;
+    gap: 22px;
+    justify-content: center;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+    font-size: 13px;
+  }
+  footer .foot-links a {
+    color: var(--text-mid);
+    text-decoration: none;
+  }
+  footer .foot-links a:hover { color: var(--text-hi); }
+  footer .copyright {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px;
+    color: var(--text-low);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<div class="sky-wash"></div>
+<div class="grain"></div>
+
+<div class="topbar">
+  <div class="taskbar">
+    <div class="orb"></div>
+    <span class="wordmark">SinkOS</span>
+    <nav>
+      <a href="#modules">Modules</a>
+      <a href="#beta">Beta status</a>
+      <a href="/legal-consent.html">Get started</a>
+    </nav>
+    <span class="build-pill">BETA 1</span>
+  </div>
+</div>
+
+<section class="hero">
+  <div class="eyebrow">Public Beta 1 — now live</div>
+  <h1>SinkOS V2 is <span>out in the open.</span></h1>
+  <p class="lede">A personal operating system, built from scratch and running in your browser. This is an early build — here's exactly what that means.</p>
+
+  <div class="sysinfo">
+    <div class="sysinfo-titlebar">
+      <div class="dots"><span></span><span></span><span></span></div>
+      <div class="filename">about-sinkos.sys</div>
+      <div style="width:38px"></div>
+    </div>
+    <div class="sysinfo-body">
+      <div class="sysinfo-row">
+        <span class="k">STATUS</span>
+        <span class="v"><span class="status-pill"><span class="dot"></span>PUBLIC BETA 1</span></span>
+      </div>
+      <div class="sysinfo-row">
+        <span class="k">TARGET FULL RELEASE</span>
+        <span class="v">October 5</span>
+      </div>
+      <div class="sysinfo-row">
+        <span class="k">MODULES ONLINE</span>
+        <span class="v">Nexus · Chat · Calls · Slides · Charts · Camera</span>
+      </div>
+      <div class="sysinfo-row">
+        <span class="k">BACKEND</span>
+        <span class="v">Supabase</span>
+      </div>
+
+      <div class="sysinfo-note">
+        <strong>This build is still being tested.</strong> Things may break, look unfinished, or behave a little strangely between now and launch — we're sorry in advance if you run into any issues. Every bit of testing right now goes directly into making the October 5 release solid.
+      </div>
+    </div>
+  </div>
+
+  <div class="hero-ctas">
+    <a href="/legal-consent.html" class="btn btn-primary">Enter the beta →</a>
+    <a href="#beta" class="btn btn-ghost">What to expect</a>
+  </div>
+</section>
+
+<section class="modules" id="modules">
+  <div class="section-head">
+    <div class="eyebrow">What's running</div>
+    <h2>Every module in this build</h2>
+    <p>All of these are live in Beta 1. Some are more polished than others — that's what beta testing is for.</p>
+  </div>
+  <div class="module-grid">
+    <div class="module-card nexus">
+      <div class="mod-dot"></div>
+      <h3>Nexus</h3>
+      <p>The built-in AI assistant. Text, voice, and file uploads, right from your desktop.</p>
+    </div>
+    <div class="module-card chat">
+      <div class="mod-dot"></div>
+      <h3>Sink Chat</h3>
+      <p>Real-time messaging with friends, built directly into the OS.</p>
+    </div>
+    <div class="module-card calls">
+      <div class="mod-dot"></div>
+      <h3>Sink Calls</h3>
+      <p>Voice and video calling, peer-to-peer, no extra app required.</p>
+    </div>
+    <div class="module-card slides">
+      <div class="mod-dot"></div>
+      <h3>Sink Slides</h3>
+      <p>A presentation builder that lives on your desktop and exports to PDF or PPTX.</p>
+    </div>
+    <div class="module-card charts">
+      <div class="mod-dot"></div>
+      <h3>Sink Charts</h3>
+      <p>A spreadsheet and charting tool for working through numbers visually.</p>
+    </div>
+    <div class="module-card camera">
+      <div class="mod-dot"></div>
+      <h3>Camera &amp; Gallery</h3>
+      <p>Capture photos straight from the browser and keep them in your private gallery.</p>
+    </div>
+  </div>
+</section>
+
+<section class="beta-strip" id="beta">
+  <div class="beta-card">
+    <div class="beta-head">
+      <span class="status-pill"><span class="dot"></span>BETA</span>
+      <h3>What being in beta actually means</h3>
+    </div>
+    <p>SinkOS V2 Public Beta 1 is a real, working build — not a demo. Your account, files, and conversations are stored for real. But it's still under active development, so you may run into rough edges, missing polish, or the occasional bug.</p>
+    <p>The full version of SinkOS V2 is targeted for <span class="highlight-date">October 5</span>. Between now and then, we're using this beta to catch issues before that release — and we're sorry in advance for any interruptions or hiccups along the way.</p>
+    <p>Run into something broken? That's genuinely useful to know about.</p>
+  </div>
+</section>
+
+<footer>
+  <div class="foot-links">
+    <a href="#modules">Modules</a>
+    <a href="/legal/terms.pdf">Terms of Service</a>
+    <a href="/legal/privacy.pdf">Privacy Policy</a>
+    <a href="/legal-consent.html">Enter SinkOS</a>
+  </div>
+  <div class="copyright">SinkOS V2 · Public Beta 1 · Built independently</div>
+</footer>
+
+</body>
+</html>
