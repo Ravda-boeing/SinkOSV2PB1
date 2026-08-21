@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Sink Charts — SinkOS</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="styles.css" />
+
+<!-- Chart.js for rendering -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<!-- Supabase client -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+</head>
+<body>
+
+<!-- ============================================================
+     Splash — shown briefly while auth state resolves
+     ============================================================ -->
+<div id="splash">
+  <div class="splash-mark">
+    <span class="splash-dot"></span>
+    SINK CHARTS · CHECKING SESSION
+  </div>
+</div>
+
+<!-- ============================================================
+     Auth gate — mirrors the SinkOS inline auth pattern:
+       - active Supabase session  -> OS password (lock) prompt
+       - no session                -> inline email/password login
+       - brand new account         -> redirect to SinkOSAuth onboarding
+     ============================================================ -->
+<div id="auth-gate" class="hidden">
+
+  <!-- Lock screen for an existing, already-authenticated session -->
+  <div id="lock-card" class="auth-card hidden">
+    <div class="lock-avatar" id="lock-initial">?</div>
+    <h1 class="auth-brand">Sink Charts<span class="dot">.</span></h1>
+    <p class="auth-sub" id="lock-username">Welcome back</p>
+    <div class="field">
+      <label for="lock-password">OS password</label>
+      <input type="password" id="lock-password" autocomplete="current-password" placeholder="••••••••" />
+    </div>
+    <button class="btn btn-primary" id="lock-unlock-btn">Unlock</button>
+    <p class="auth-error" id="lock-error"></p>
+    <p class="auth-switch"><button id="lock-signout-btn">Sign in as someone else</button></p>
+  </div>
+
+  <!-- Inline login for a fresh browser session -->
+  <div id="login-card" class="auth-card hidden">
+    <h1 class="auth-brand">Sink Charts<span class="dot">.</span></h1>
+    <p class="auth-sub">Sign in to build and save your charts.</p>
+    <div class="field">
+      <label for="login-email">Email</label>
+      <input type="email" id="login-email" autocomplete="email" placeholder="you@example.com" />
+    </div>
+    <div class="field">
+      <label for="login-password">Password</label>
+      <input type="password" id="login-password" autocomplete="current-password" placeholder="••••••••" />
+    </div>
+    <button class="btn btn-primary" id="login-btn">Sign in</button>
+    <p class="auth-error" id="login-error"></p>
+    <p class="auth-switch">New to SinkOS? <button id="go-onboarding-btn">Create an account</button></p>
+  </div>
+
+</div>
+
+<!-- ============================================================
+     App shell
+     ============================================================ -->
+<div id="app" class="hidden">
+
+  <header class="topbar">
+    <h1 class="brand">Sink Charts<span class="dot">.</span></h1>
+    <input type="text" id="project-name" class="project-name" value="Untitled project" spellcheck="false" />
+    <div class="topbar-spacer"></div>
+    <span class="save-status" id="save-status">not saved</span>
+    <button class="btn-ghost" id="new-project-btn">New</button>
+    <button class="btn-ghost" id="open-projects-btn">My projects</button>
+    <button class="btn-ghost accent" id="save-project-btn">Save</button>
+    <button class="btn-ghost" id="export-png-btn">Export PNG</button>
+    <span class="account-chip" id="account-chip">—</span>
+  </header>
+
+  <div class="workspace">
+
+    <!-- LEFT: data table editor -->
+    <section class="panel" id="data-panel">
+      <div class="panel-header">
+        <span class="panel-title">Data</span>
+      </div>
+      <div class="panel-body">
+        <div class="table-scroll">
+          <table class="data-grid" id="data-grid">
+            <thead><tr id="grid-head-row"></tr></thead>
+            <tbody id="grid-body"></tbody>
+          </table>
+        </div>
+        <div class="grid-controls">
+          <button class="btn-ghost" id="add-row-btn">+ Row</button>
+          <button class="btn-ghost" id="add-col-btn">+ Column</button>
+        </div>
+        <div class="csv-import">
+          <span class="panel-title">Paste CSV</span>
+          <textarea id="csv-input" placeholder="Month,Revenue,Cost&#10;Jan,4200,3100&#10;Feb,4800,3300" style="margin-top:8px;"></textarea>
+          <button class="btn-ghost" id="csv-import-btn" style="width:100%; justify-content:center;">Import</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- CENTER: chart canvas -->
+    <section class="canvas-area">
+      <div class="chart-shell">
+        <div class="chart-title-row">
+          <input type="text" id="chart-title" class="chart-title" value="Chart title" spellcheck="false" />
+        </div>
+        <div class="chart-canvas-wrap">
+          <canvas id="chart-canvas"></canvas>
+          <div class="empty-state hidden" id="chart-empty">
+            <span class="glyph">⌗</span>
+            <span>Add data on the left to see your chart</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- RIGHT: chart configuration -->
+    <section class="panel" id="config-panel">
+      <div class="panel-header">
+        <span class="panel-title">Chart type</span>
+      </div>
+      <div class="panel-body">
+        <div class="chart-type-grid" id="chart-type-grid">
+          <!-- populated by app.js -->
+        </div>
+
+        <div class="field-row">
+          <label for="x-axis-select">Labels (X-axis)</label>
+          <select id="x-axis-select"></select>
+        </div>
+
+        <div class="field-row">
+          <label>Series</label>
+          <div class="series-list" id="series-list"></div>
+        </div>
+
+        <div class="toggle-row">
+          <span>Show legend</span>
+          <label class="switch">
+            <input type="checkbox" id="toggle-legend" checked />
+            <span class="switch-track"></span>
+          </label>
+        </div>
+        <div class="toggle-row">
+          <span>Show grid lines</span>
+          <label class="switch">
+            <input type="checkbox" id="toggle-grid" checked />
+            <span class="switch-track"></span>
+          </label>
+        </div>
+        <div class="toggle-row">
+          <span>Curved lines</span>
+          <label class="switch">
+            <input type="checkbox" id="toggle-curve" />
+            <span class="switch-track"></span>
+          </label>
+        </div>
+      </div>
+    </section>
+
+  </div>
+</div>
+
+<!-- ============================================================
+     My projects modal
+     ============================================================ -->
+<div id="projects-modal" class="modal-backdrop hidden">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>My projects</h2>
+      <button class="modal-close" id="close-projects-btn">&times;</button>
+    </div>
+    <div class="modal-body" id="projects-list">
+      <!-- populated by app.js -->
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script src="auth.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
