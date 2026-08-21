@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Nexus — Public Beta </title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;600;700&display=swap');
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Rajdhani', sans-serif;
+      background: #0a0f2b;
+      color: #fdfdfd;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(79,140,255,0.07) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(79,140,255,0.07) 1px, transparent 1px);
+      background-size: 40px 40px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ── Header ── */
+    .header {
+      position: relative;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 28px;
+      background: rgba(13,20,56,0.95);
+      border-bottom: 1px solid rgba(79,140,255,0.4);
+      backdrop-filter: blur(10px);
+    }
+    .header-left { display: flex; align-items: center; gap: 12px; }
+    .logo {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 20px;
+      background: linear-gradient(90deg, #4f8cff, #a0c4ff);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+      letter-spacing: 0.15em;
+    }
+    .status {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: rgba(255,255,255,0.5);
+      font-family: 'Share Tech Mono', monospace;
+    }
+    .status-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: #4f8cff;
+      box-shadow: 0 0 8px #4f8cff;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.3; }
+    }
+    .header-right {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 11px;
+      color: rgba(79,140,255,0.6);
+      letter-spacing: 0.1em;
+    }
+
+    /* ── Layout ── */
+    .main {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* ── Sidebar ── */
+    .sidebar {
+      width: 260px;
+      flex-shrink: 0;
+      background: rgba(13,20,56,0.95);
+      border-right: 1px solid rgba(79,140,255,0.2);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .sidebar-header {
+      padding: 14px 16px;
+      border-bottom: 1px solid rgba(79,140,255,0.2);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .sidebar-title {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 11px;
+      color: rgba(79,140,255,0.7);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+    .new-chat-btn {
+      background: rgba(79,140,255,0.15);
+      border: 1px solid rgba(79,140,255,0.3);
+      border-radius: 6px;
+      padding: 5px 10px;
+      color: #4f8cff;
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 11px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .new-chat-btn:hover { background: rgba(79,140,255,0.25); }
+
+    .conversation-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px;
+    }
+    .conversation-list::-webkit-scrollbar { width: 3px; }
+    .conversation-list::-webkit-scrollbar-thumb { background: rgba(79,140,255,0.2); border-radius: 2px; }
+
+    .conv-item {
+      padding: 10px 12px;
+      border-radius: 8px;
+      font-size: 13px;
+      color: rgba(255,255,255,0.6);
+      cursor: pointer;
+      transition: background 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 2px;
+    }
+    .conv-item:hover  { background: rgba(79,140,255,0.1);  color: #fdfdfd; }
+    .conv-item.active { background: rgba(79,140,255,0.2);  color: #fdfdfd; border: 1px solid rgba(79,140,255,0.3); }
+    .conv-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .conv-delete {
+      background: none;
+      border: none;
+      color: rgba(255,255,255,0.2);
+      cursor: pointer;
+      font-size: 11px;
+      flex-shrink: 0;
+      padding: 2px 4px;
+      border-radius: 4px;
+      transition: color 0.2s;
+    }
+    .conv-delete:hover { color: #ff4f4f; }
+
+    /* ── Chat wrapper ── */
+    .chat-wrapper { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+    .chat-area {
+      flex: 1;
+      overflow-y: auto;
+      padding: 32px 0;
+      scroll-behavior: smooth;
+    }
+    .chat-area::-webkit-scrollbar       { width: 4px; }
+    .chat-area::-webkit-scrollbar-track { background: transparent; }
+    .chat-area::-webkit-scrollbar-thumb { background: rgba(79,140,255,0.3); border-radius: 2px; }
+
+    .messages-wrapper {
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 0 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    /* ── Message rows ── */
+    .message-row {
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+    }
+    .message-row.user { flex-direction: row-reverse; }
+
+    .avatar {
+      width: 34px; height: 34px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 11px;
+      font-weight: bold;
+    }
+    .avatar.bot {
+      background: linear-gradient(135deg, #4f8cff, #0d1438);
+      color: #fff;
+      box-shadow: 0 0 12px rgba(79,140,255,0.5);
+    }
+    .avatar.user {
+      background: linear-gradient(135deg, #a0c4ff, #4f8cff);
+      color: #0a0f2b;
+      box-shadow: 0 0 12px rgba(79,140,255,0.4);
+    }
+
+    .bubble {
+      max-width: 65%;
+      padding: 12px 16px;
+      border-radius: 4px;
+      font-size: 15px;
+      line-height: 1.6;
+      word-break: break-word;
+    }
+    .message-row.bot .bubble {
+      background: rgba(79,140,255,0.08);
+      border: 1px solid rgba(79,140,255,0.25);
+      border-top-left-radius: 0;
+      color: #c8d8ff;
+    }
+    .message-row.user .bubble {
+      background: rgba(160,196,255,0.1);
+      border: 1px solid rgba(160,196,255,0.3);
+      border-top-right-radius: 0;
+      color: #e8f0ff;
+    }
+
+    /* ── Typing indicator ── */
+    .typing-row {
+      display: none;   /* shown via JS as flex */
+      gap: 12px;
+      align-items: flex-start;
+    }
+    .typing-bubble {
+      background: rgba(79,140,255,0.08);
+      border: 1px solid rgba(79,140,255,0.25);
+      border-radius: 4px;
+      border-top-left-radius: 0;
+      padding: 12px 16px;
+      display: flex;
+      gap: 5px;
+      align-items: center;
+    }
+    .typing-bubble span {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: #4f8cff;
+      animation: blink 1.2s infinite;
+    }
+    .typing-bubble span:nth-child(2) { animation-delay: 0.2s; }
+    .typing-bubble span:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes blink {
+      0%, 100% { opacity: 0.2; transform: scale(0.8); }
+      50%       { opacity: 1;   transform: scale(1);   }
+    }
+
+    /* ── Input area ── */
+    .input-area {
+      padding: 16px 24px 20px;
+      background: rgba(13,20,56,0.95);
+      border-top: 1px solid rgba(79,140,255,0.2);
+      backdrop-filter: blur(10px);
+    }
+    .input-wrapper {
+      max-width: 760px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(79,140,255,0.3);
+      border-radius: 8px;
+      padding: 10px 14px;
+      transition: border-color 0.2s;
+    }
+    .input-wrapper:focus-within {
+      border-color: rgba(79,140,255,0.7);
+      box-shadow: 0 0 16px rgba(79,140,255,0.15);
+    }
+    .input-wrapper input {
+      flex: 1;
+      background: transparent;
+      border: none;
+      outline: none;
+      color: #fdfdfd;
+      font-family: 'Rajdhani', sans-serif;
+      font-size: 15px;
+      font-weight: 500;
+    }
+    .input-wrapper input::placeholder { color: rgba(255,255,255,0.25); }
+    .input-wrapper button#send-btn {
+      background: linear-gradient(135deg, #4f8cff, #0d1438);
+      border: none;
+      border-radius: 6px;
+      padding: 7px 16px;
+      color: #fff;
+      font-family: 'Rajdhani', sans-serif;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      cursor: pointer;
+      transition: opacity 0.2s, transform 0.1s;
+      text-transform: uppercase;
+      flex-shrink: 0;
+    }
+    .input-wrapper button#send-btn:hover  { opacity: 0.85; }
+    .input-wrapper button#send-btn:active { transform: scale(0.97); }
+    .input-hint {
+      max-width: 760px;
+      margin: 8px auto 0;
+      font-size: 11px;
+      color: rgba(255,255,255,0.2);
+      font-family: 'Share Tech Mono', monospace;
+      text-align: center;
+    }
+
+    /* ── Icon buttons in input row (mic + attach) ── */
+    .icon-btn {
+      flex-shrink: 0;
+      width: 34px; height: 34px;
+      border-radius: 50%;
+      background: rgba(79,140,255,0.1);
+      border: 1px solid rgba(79,140,255,0.3);
+      color: #4f8cff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: transform 0.15s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+    }
+    .icon-btn:hover {
+      transform: scale(1.08);
+      background: rgba(79,140,255,0.22);
+    }
+    .icon-btn:active { transform: scale(0.96); }
+    .icon-btn:disabled { opacity: 0.4; cursor: default; transform: none; }
+
+    /* ── Pending file chips (shown above input before sending) ── */
+    .pending-files {
+      max-width: 760px;
+      margin: 0 auto;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .pending-files:not(:empty) { margin-bottom: 10px; }
+    .file-chip {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(79,140,255,0.1);
+      border: 1px solid rgba(79,140,255,0.3);
+      border-radius: 8px;
+      padding: 4px 8px 4px 4px;
+      font-size: 12px;
+      color: #c8d8ff;
+      font-family: 'Share Tech Mono', monospace;
+      max-width: 220px;
+    }
+    .file-chip img {
+      width: 24px; height: 24px;
+      object-fit: cover;
+      border-radius: 4px;
+      flex-shrink: 0;
+    }
+    .file-chip .file-chip-icon {
+      width: 24px; height: 24px;
+      border-radius: 4px;
+      background: rgba(79,140,255,0.2);
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+      font-size: 13px;
+    }
+    .file-chip-name {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .file-chip-remove {
+      background: none;
+      border: none;
+      color: rgba(255,255,255,0.4);
+      cursor: pointer;
+      font-size: 13px;
+      line-height: 1;
+      flex-shrink: 0;
+      padding: 2px;
+    }
+    .file-chip-remove:hover { color: #ff8080; }
+
+    .file-error-text {
+      max-width: 760px;
+      margin: 6px auto 0;
+      font-size: 12px;
+      color: #ff8080;
+      font-family: 'Share Tech Mono', monospace;
+      text-align: center;
+      min-height: 0;
+    }
+
+    /* ── Attachments rendered inside a chat bubble ── */
+    .bubble-attachments {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .attachment-thumb {
+      width: 140px;
+      max-height: 140px;
+      object-fit: cover;
+      border-radius: 6px;
+      border: 1px solid rgba(79,140,255,0.3);
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+    .attachment-thumb:hover { opacity: 0.85; }
+    .attachment-file {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(79,140,255,0.1);
+      border: 1px solid rgba(79,140,255,0.3);
+      border-radius: 6px;
+      padding: 8px 12px;
+      font-size: 13px;
+      color: #c8d8ff;
+      text-decoration: none;
+    }
+    .attachment-file:hover { background: rgba(79,140,255,0.2); }
+
+    /* ── Voice Mode overlay ── */
+    .voice-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 1000;
+      background: rgba(10,15,43,0.98);
+      backdrop-filter: blur(14px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      transform: translateY(16px);
+      pointer-events: none;
+      transition: opacity 0.25s ease, transform 0.25s ease;
+    }
+    .voice-overlay.open {
+      opacity: 1;
+      transform: translateY(0);
+      pointer-events: all;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .voice-overlay { transition: opacity 0.15s linear; transform: none; }
+      .voice-overlay.open { transform: none; }
+    }
+
+    .voice-back-btn {
+      position: absolute;
+      top: 24px;
+      left: 24px;
+      width: 40px; height: 40px;
+      border-radius: 50%;
+      background: rgba(79,140,255,0.1);
+      border: 1px solid rgba(79,140,255,0.3);
+      color: #a0c4ff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .voice-back-btn:hover { background: rgba(79,140,255,0.22); }
+
+    .voice-center {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 22px;
+      padding: 0 24px;
+      text-align: center;
+    }
+
+    .voice-orb {
+      width: 160px; height: 160px;
+      border-radius: 50%;
+      border: none;
+      background: rgba(79,140,255,0.08);
+      box-shadow: 0 0 0 1px rgba(79,140,255,0.25) inset;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      cursor: pointer;
+      color: #a0c4ff;
+      transition: background 0.3s ease, box-shadow 0.3s ease;
+    }
+    .voice-orb-icon { position: relative; z-index: 2; }
+    .voice-waveform {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      opacity: 0;
+      transition: opacity 0.2s ease;
+    }
+    .voice-orb[data-state="listening"] .voice-waveform,
+    .voice-orb[data-state="speaking"] .voice-waveform {
+      opacity: 1;
+    }
+    .voice-orb[data-state="listening"] .voice-orb-icon,
+    .voice-orb[data-state="speaking"] .voice-orb-icon {
+      opacity: 0;
+    }
+
+    .voice-orb[data-state="idle"] {
+      animation: idle-glow 3s ease-in-out infinite;
+    }
+    .voice-orb[data-state="listening"] {
+      background: rgba(79,140,255,0.16);
+      box-shadow: 0 0 0 1px rgba(79,140,255,0.5) inset, 0 0 40px rgba(79,140,255,0.35);
+      animation: orb-breathe 1.6s ease-in-out infinite;
+    }
+    .voice-orb[data-state="processing"] {
+      background: rgba(79,140,255,0.1);
+      animation: orb-spin 1s linear infinite;
+    }
+    .voice-orb[data-state="speaking"] {
+      background: linear-gradient(135deg, #4f8cff, #0d1438);
+      box-shadow: 0 0 40px rgba(79,140,255,0.5);
+      color: #fff;
+      animation: orb-pulse-fast 0.8s ease-in-out infinite;
+    }
+    .voice-orb[data-state="error"] {
+      background: rgba(255,79,79,0.12);
+      box-shadow: 0 0 0 1px rgba(255,79,79,0.5) inset;
+      color: #ff8080;
+    }
+
+    @keyframes idle-glow {
+      0%, 100% { box-shadow: 0 0 0 1px rgba(79,140,255,0.25) inset; }
+      50%       { box-shadow: 0 0 0 1px rgba(79,140,255,0.4) inset, 0 0 24px rgba(79,140,255,0.15); }
+    }
+    @keyframes orb-breathe {
+      0%, 100% { transform: scale(1); }
+      50%       { transform: scale(1.06); }
+    }
+    @keyframes orb-pulse-fast {
+      0%, 100% { transform: scale(1); }
+      50%       { transform: scale(1.1); }
+    }
+    @keyframes orb-spin {
+      0%   { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .voice-orb, .voice-orb[data-state] { animation: none !important; }
+    }
+
+    #voice-status-text {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      color: rgba(255,255,255,0.6);
+      text-transform: uppercase;
+    }
+    .voice-transcript {
+      max-width: 480px;
+      min-height: 22px;
+      font-size: 16px;
+      color: #c8d8ff;
+      font-weight: 500;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="header">
+    <div class="header-left">
+      <div class="logo">NEXUS</div>
+      <div class="status">
+        <div class="status-dot"></div>
+        ONLINE
+      </div>
+    </div>
+    <div class="header-right">PUBLIC BETA 3.5</div>
+  </div>
+
+  <div class="main">
+    <!-- Sidebar -->
+    <div class="sidebar">
+      <div class="sidebar-header">
+        <div class="sidebar-title">Chats</div>
+        <button class="new-chat-btn" id="new-chat-btn">+ New</button>
+      </div>
+      <div class="conversation-list" id="conversation-list"></div>
+    </div>
+
+    <!-- Chat -->
+    <div class="chat-wrapper">
+      <div class="chat-area" id="chat-area">
+        <div class="messages-wrapper" id="chat-logs">
+          <!-- messages injected here by JS -->
+        </div>
+      </div>
+
+      <!-- Typing indicator lives OUTSIDE messages-wrapper so it always sticks below -->
+      <div class="typing-row" id="typing-indicator" style="max-width:760px;margin:0 auto;padding:0 24px 16px;width:100%;">
+        <div class="avatar bot">NX</div>
+        <div class="typing-bubble">
+          <span></span><span></span><span></span>
+        </div>
+      </div>
+
+      <div class="input-area">
+        <div id="pending-files" class="pending-files"></div>
+        <div class="input-wrapper">
+          <button id="nexus-attach-btn" class="icon-btn" aria-label="Attach a file" type="button">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21.44 11.05l-9.19 9.19a5 5 0 0 1-7.07-7.07l9.19-9.19a3.5 3.5 0 0 1 4.95 4.95L10.13 17.1a2 2 0 0 1-2.83-2.83l8.49-8.49"/>
+            </svg>
+          </button>
+          <input id="nexus-file-input" type="file" multiple hidden
+                 accept="image/png,image/jpeg,image/gif,image/webp,image/bmp,application/pdf" />
+          <button id="nexus-mic-btn" class="icon-btn" aria-label="Start voice mode" type="button">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+              <line x1="12" y1="19" x2="12" y2="23"/>
+              <line x1="8" y1="23" x2="16" y2="23"/>
+            </svg>
+          </button>
+          <input id="user-input" type="text" placeholder="Ask me anything, hotshot..." autocomplete="off" />
+          <button id="send-btn">Send</button>
+        </div>
+        <div id="file-error-text" class="file-error-text"></div>
+        <div class="input-hint">Press Enter to send &middot; Tap the mic for Voice Mode &middot; Attach images or PDFs</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Voice Mode full-screen overlay ── -->
+  <div id="voice-mode-overlay" class="voice-overlay" role="dialog" aria-modal="true" aria-label="Nexus Voice Mode">
+    <button id="voice-back-btn" class="voice-back-btn" aria-label="Back to chat" type="button">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+        <line x1="19" y1="12" x2="5" y2="12"/>
+        <polyline points="12 19 5 12 12 5"/>
+      </svg>
+    </button>
+
+    <div class="voice-center">
+      <button id="voice-orb" class="voice-orb" data-state="idle" aria-label="Tap to speak" type="button">
+        <svg id="voice-waveform" class="voice-waveform" viewBox="0 0 160 160"></svg>
+        <svg class="voice-orb-icon" viewBox="0 0 24 24" width="36" height="36" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+          <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+          <line x1="12" y1="19" x2="12" y2="23"/>
+          <line x1="8" y1="23" x2="16" y2="23"/>
+        </svg>
+      </button>
+
+      <p id="voice-status-text" aria-live="polite">Tap to speak</p>
+      <p id="voice-transcript-text" class="voice-transcript"></p>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="app.js" defer></script>
+</body>
+</html>
