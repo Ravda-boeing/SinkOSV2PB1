@@ -31,7 +31,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
                 // Redirect after fade-out
                 setTimeout(() => {
-                    window.location.href = "lockscreenv2.html";
+                    window.location.href = "lockscreen.html";
                 }, 2000);
 
             }, 9000);
