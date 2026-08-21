@@ -1,0 +1,281 @@
+<!-- ============================================================
+     SinkOS Legal Consent Screen
+     Drop into onboarding.html (or its own legal-consent.html step).
+     Requires: /legal/privacy.pdf and /legal/terms.pdf hosted at site root.
+     On "I Agree" click -> redirects to installation.html
+     ============================================================ -->
+
+<style>
+  .legal-screen {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 40px 20px;
+    font-family: 'Segoe UI', 'Inter', system-ui, sans-serif;
+    background: radial-gradient(circle at top, rgba(79,209,255,0.12), transparent 60%),
+                #0b0e11;
+    color: #fff;
+  }
+
+  .legal-card {
+    width: min(480px, 100%);
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 20px;
+    padding: 36px 32px;
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    box-shadow: 0 24px 60px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.08);
+    text-align: center;
+  }
+
+  .legal-card h1 {
+    font-size: 20px;
+    font-weight: 600;
+    margin: 0 0 8px;
+    letter-spacing: 0.2px;
+  }
+
+  .legal-card p.subtitle {
+    font-size: 14px;
+    color: rgba(255,255,255,0.6);
+    margin: 0 0 28px;
+    line-height: 1.5;
+  }
+
+  .legal-doc-links {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 28px;
+  }
+
+  .legal-doc-link {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 12px;
+    color: #fff;
+    text-decoration: none;
+    font-size: 14px;
+    font-weight: 500;
+    transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+    cursor: pointer;
+  }
+
+  .legal-doc-link:hover {
+    background: rgba(79,209,255,0.1);
+    border-color: rgba(79,209,255,0.4);
+    transform: translateY(-1px);
+  }
+
+  .legal-doc-link svg {
+    opacity: 0.6;
+    flex-shrink: 0;
+  }
+
+  .legal-doc-link .doc-icon-label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .legal-agree-btn {
+    width: 100%;
+    padding: 15px;
+    border: none;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #4fd1ff, #3a8fff);
+    color: #06131c;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    cursor: pointer;
+    transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+    box-shadow: 0 8px 24px rgba(79,209,255,0.35);
+  }
+
+  .legal-agree-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 30px rgba(79,209,255,0.5);
+  }
+
+  .legal-agree-btn:active {
+    transform: translateY(0);
+  }
+
+  .legal-fineprint {
+    font-size: 12px;
+    color: rgba(255,255,255,0.4);
+    margin-top: 18px;
+    line-height: 1.5;
+  }
+
+  /* PDF viewer modal */
+  .legal-modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.6);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  .legal-modal-overlay.open { display: flex; }
+
+  .legal-modal {
+    background: #14181f;
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 16px;
+    width: min(900px, 100%);
+    height: min(85vh, 900px);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-shadow: 0 24px 70px rgba(0,0,0,0.6);
+  }
+
+  .legal-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+    flex-shrink: 0;
+  }
+
+  .legal-modal-header h3 {
+    margin: 0;
+    font-size: 15px;
+    color: #fff;
+    font-weight: 600;
+  }
+
+  .legal-modal-close {
+    background: rgba(255,255,255,0.08);
+    border: none;
+    color: #fff;
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 17px;
+    line-height: 1;
+    transition: background 0.15s ease;
+  }
+  .legal-modal-close:hover { background: rgba(255,255,255,0.2); }
+
+  .legal-modal iframe {
+    flex: 1;
+    width: 100%;
+    border: none;
+    background: #fff;
+  }
+</style>
+
+<div class="legal-screen">
+  <div class="legal-card">
+    <h1>Before you get started</h1>
+    <p class="subtitle">Please review the Terms of Service and Privacy Policy for SinkOS.</p>
+
+    <div class="legal-doc-links">
+      <a class="legal-doc-link" onclick="openLegalDoc('/legal/terms.pdf', 'Terms of Service'); return false;">
+        <span class="doc-icon-label">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <path d="M14 2v6h6"/>
+            <path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/>
+          </svg>
+          Terms of Service
+        </span>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M9 18l6-6-6-6"/>
+        </svg>
+      </a>
+
+      <a class="legal-doc-link" onclick="openLegalDoc('/legal/privacy.pdf', 'Privacy Policy'); return false;">
+        <span class="doc-icon-label">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          </svg>
+          Privacy Policy
+        </span>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M9 18l6-6-6-6"/>
+        </svg>
+      </a>
+    </div>
+
+    <button class="legal-agree-btn" id="legal-agree-btn" onclick="agreeAndContinue()">
+      I Agree
+    </button>
+
+    <p class="legal-fineprint">
+      By clicking "I Agree," you confirm that you have read and accepted<br>
+      the Terms of Service and Privacy Policy.
+    </p>
+  </div>
+</div>
+
+<!-- PDF viewer modal -->
+<div class="legal-modal-overlay" id="legal-modal-overlay">
+  <div class="legal-modal">
+    <div class="legal-modal-header">
+      <h3 id="legal-modal-title">Document</h3>
+      <button class="legal-modal-close" onclick="closeLegalDoc()">&times;</button>
+    </div>
+    <iframe id="legal-modal-frame" src=""></iframe>
+  </div>
+</div>
+
+<script>
+  function openLegalDoc(url, title) {
+    document.getElementById('legal-modal-title').textContent = title;
+    document.getElementById('legal-modal-frame').src = url;
+    document.getElementById('legal-modal-overlay').classList.add('open');
+  }
+  function closeLegalDoc() {
+    document.getElementById('legal-modal-overlay').classList.remove('open');
+    document.getElementById('legal-modal-frame').src = ''; // stop loading when closed
+  }
+  document.getElementById('legal-modal-overlay').addEventListener('click', function(e) {
+    if (e.target === this) closeLegalDoc();
+  });
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') closeLegalDoc();
+  });
+
+  // Main action: record consent, then redirect
+  async function agreeAndContinue() {
+    const btn = document.getElementById('legal-agree-btn');
+    btn.disabled = true;
+    btn.textContent = 'Redirecting...';
+
+    // Optional: record consent in Supabase before redirecting.
+    // Uncomment and adapt if `sb` (Supabase client) and a logged-in
+    // or pending user context are available on this page.
+    //
+    // try {
+    //   const { data: { user } } = await sb.auth.getUser();
+    //   if (user) {
+    //     await sb.from('profiles').update({
+    //       terms_accepted_at: new Date().toISOString(),
+    //       terms_version: 'v1.0'
+    //     }).eq('id', user.id);
+    //   }
+    // } catch (err) {
+    //   console.error('Failed to record consent:', err);
+    //   // Decide whether to block redirect on failure — currently we don't.
+    // }
+
+    window.location.href = 'installation.html';
+  }
+</script>
