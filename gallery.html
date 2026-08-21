@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Sink OS Gallery</title>
+  <link rel="icon" href="favicon.png" type="image/x-icon">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    html, body {
+      width: 100%;
+      min-height: 100%;
+      margin: 0;
+      padding: 0;
+    }
+
+    :root {
+      --sink-bg: #05060a;
+      --sink-accent: #5b8cff;
+      --sink-accent-soft: rgba(91, 140, 255, 0.16);
+      --sink-shutter: #ffb020;
+      --sink-border: #23273a;
+      --sink-border-soft: rgba(255, 255, 255, 0.06);
+      --sink-text: #f5f7ff;
+      --sink-text-muted: #8d93ac;
+      --sink-danger: #ff4f6b;
+      --sink-success: #35d18b;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    body {
+      background:
+        radial-gradient(ellipse 900px 500px at 15% -10%, rgba(91, 140, 255, 0.10), transparent 60%),
+        radial-gradient(ellipse 700px 500px at 100% 0%, rgba(255, 176, 32, 0.06), transparent 60%),
+        var(--sink-bg);
+      color: var(--sink-text);
+      min-height: 100vh;
+    }
+
+    .gallery-header {
+      padding: 14px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: linear-gradient(to right, rgba(13, 15, 24, 0.9), rgba(9, 10, 17, 0.9));
+      border-bottom: 1px solid var(--sink-border-soft);
+      backdrop-filter: blur(18px);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    .gallery-title {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--sink-text-muted);
+    }
+
+    .gallery-title-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 999px;
+      background: radial-gradient(circle at 30% 30%, #7bffb4, #00c46a);
+      box-shadow: 0 0 8px rgba(0, 255, 153, 0.7);
+    }
+
+    .gallery-header-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 11px;
+      color: var(--sink-text-muted);
+    }
+
+    .pill {
+      padding: 4px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--sink-border);
+      background: rgba(9, 10, 17, 0.7);
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
+    }
+
+    .pill-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 999px;
+      background: var(--sink-success);
+      box-shadow: 0 0 6px rgba(53, 209, 139, 0.8);
+    }
+
+    .camera-link {
+      padding: 4px 12px;
+      border-radius: 999px;
+      border: 1px solid var(--sink-border);
+      background: rgba(9, 10, 17, 0.7);
+      color: var(--sink-text);
+      text-decoration: none;
+      font-size: 11px;
+      transition: border-color 0.15s ease;
+    }
+    .camera-link:hover { border-color: var(--sink-shutter); }
+
+    main {
+      padding: 24px;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 14px;
+    }
+
+    .card {
+      position: relative;
+      border-radius: 14px;
+      overflow: hidden;
+      border: 1px solid var(--sink-border);
+      background: #0d0f18;
+      aspect-ratio: 1 / 1;
+      cursor: pointer;
+    }
+    .card img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+      transition: transform 0.2s ease;
+    }
+    .card:hover img { transform: scale(1.03); }
+
+    .card-meta {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      padding: 8px 10px;
+      font-size: 10px;
+      color: var(--sink-text-muted);
+      background: linear-gradient(to top, rgba(5, 6, 10, 0.85), transparent);
+    }
+
+    .card-skeleton {
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(100deg, #10121a 30%, #181c2c 50%, #10121a 70%);
+      background-size: 200% 100%;
+      animation: shimmer 1.4s infinite;
+    }
+    @keyframes shimmer {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+
+    .state-message {
+      grid-column: 1 / -1;
+      text-align: center;
+      padding: 60px 20px;
+      color: var(--sink-text-muted);
+      font-size: 13px;
+    }
+
+    .state-message a {
+      color: var(--sink-accent);
+    }
+
+    /* ---------- lightbox ---------- */
+
+    .lightbox {
+      position: fixed;
+      inset: 0;
+      background: rgba(2, 2, 4, 0.9);
+      backdrop-filter: blur(6px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      padding: 24px;
+    }
+    .lightbox.open { display: flex; }
+
+    .lightbox-inner {
+      max-width: 90vw;
+      max-height: 82vh;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .lightbox-inner img {
+      max-width: 100%;
+      max-height: 68vh;
+      border-radius: 12px;
+      border: 1px solid var(--sink-border);
+    }
+
+    .lightbox-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .lightbox-btn {
+      padding: 6px 14px;
+      border-radius: 999px;
+      border: 1px solid var(--sink-border);
+      background: rgba(9, 10, 17, 0.85);
+      color: var(--sink-text);
+      font-size: 11px;
+      cursor: pointer;
+      text-decoration: none;
+      transition: border-color 0.15s ease;
+    }
+    .lightbox-btn:hover { border-color: var(--sink-accent); }
+    .lightbox-btn.danger:hover { border-color: var(--sink-danger); color: var(--sink-danger); }
+    .lightbox-close {
+      position: absolute;
+      top: 18px;
+      right: 22px;
+      color: var(--sink-text-muted);
+      font-size: 22px;
+      cursor: pointer;
+      background: none;
+      border: none;
+    }
+
+    .toast-stack {
+      position: fixed;
+      bottom: 16px;
+      right: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      z-index: 200;
+      pointer-events: none;
+    }
+    .toast {
+      font-size: 11px;
+      padding: 7px 12px;
+      border-radius: 8px;
+      background: rgba(9, 10, 17, 0.92);
+      border: 1px solid var(--sink-border);
+      color: var(--sink-text);
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+      opacity: 0;
+      transform: translateY(6px);
+      animation: toastIn 220ms ease forwards, toastOut 220ms ease forwards 2.6s;
+    }
+    .toast.success { border-color: rgba(53, 209, 139, 0.4); }
+    .toast.error { border-color: rgba(255, 79, 107, 0.4); }
+    @keyframes toastIn { to { opacity: 1; transform: translateY(0); } }
+    @keyframes toastOut { to { opacity: 0; transform: translateY(-4px); } }
+  </style>
+</head>
+<body>
+  <header class="gallery-header">
+    <div class="gallery-title">
+      <span class="gallery-title-dot"></span>
+      <span>Sink Gallery</span>
+    </div>
+    <div class="gallery-header-right">
+      <div class="pill" id="accountPill">
+        <span class="pill-dot"></span>
+        <span id="accountLabel">Loading account…</span>
+      </div>
+      <a class="camera-link" href="camera.html">Camera</a>
+    </div>
+  </header>
+
+  <main>
+    <div class="grid" id="grid">
+      <div class="state-message">Loading your photos…</div>
+    </div>
+  </main>
+
+  <div class="lightbox" id="lightbox">
+    <button class="lightbox-close" id="lightboxClose">×</button>
+    <div class="lightbox-inner">
+      <img id="lightboxImg" alt="Photo">
+      <div class="lightbox-actions">
+        <span id="lightboxDate" style="font-size:11px;color:var(--sink-text-muted);"></span>
+        <a class="lightbox-btn" id="lightboxDownload" download>Download</a>
+        <button class="lightbox-btn danger" id="lightboxDelete">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast-stack" id="toastStack"></div>
+
+  <script>
+    // CONFIGURE: same Supabase project used across SinkOS (ref okknkixdbjsnqrwlfgzn)
+    const SUPABASE_URL = "https://okknkixdbjsnqrwlfgzn.supabase.co";
+    const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9ra25raXhkYmpzbnFyd2xmZ3puIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI1NzgwNzQsImV4cCI6MjA5ODE1NDA3NH0.L2QDUnez8KjIM8yg9cB9cs-tTq6nedk3CCpuJBjWBEg";
+    const PHOTOS_BUCKET = "camera-photos";
+    const PHOTOS_TABLE = "camera_photos";
+    const SIGNED_URL_TTL = 3600; // seconds
+
+    const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    const grid = document.getElementById("grid");
+    const accountPill = document.getElementById("accountPill");
+    const accountLabel = document.getElementById("accountLabel");
+    const toastStack = document.getElementById("toastStack");
+
+    const lightbox = document.getElementById("lightbox");
+    const lightboxImg = document.getElementById("lightboxImg");
+    const lightboxDate = document.getElementById("lightboxDate");
+    const lightboxDownload = document.getElementById("lightboxDownload");
+    const lightboxDelete = document.getElementById("lightboxDelete");
+    const lightboxClose = document.getElementById("lightboxClose");
+
+    let currentUser = null;
+    let activePhotoId = null;
+
+    function toast(message, kind = "") {
+      const el = document.createElement("div");
+      el.className = `toast ${kind}`;
+      el.textContent = message;
+      toastStack.appendChild(el);
+      setTimeout(() => el.remove(), 3000);
+    }
+
+    function formatDate(iso) {
+      const d = new Date(iso);
+      return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) +
+        " · " + d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+    }
+
+    // ---------- inline auth gate: redirect to sign-in if no session ----------
+    async function requireAuth() {
+      const { data: { session } } = await sb.auth.getSession();
+      if (!session?.user) {
+        const redirect = encodeURIComponent(window.location.href);
+        window.location.href = `login.html?redirect_to=${redirect}`;
+        return null;
+      }
+      return session.user;
+    }
+
+    function renderSkeletons(count = 8) {
+      grid.innerHTML = "";
+      for (let i = 0; i < count; i++) {
+        const card = document.createElement("div");
+        card.className = "card";
+        card.innerHTML = `<div class="card-skeleton"></div>`;
+        grid.appendChild(card);
+      }
+    }
+
+    async function loadPhotos() {
+      renderSkeletons();
+
+      const { data: rows, error } = await sb
+        .from(PHOTOS_TABLE)
+        .select("id, storage_path, taken_at")
+        .eq("user_id", currentUser.id)
+        .order("taken_at", { ascending: false });
+
+      if (error) {
+        console.error("Load error:", error);
+        grid.innerHTML = `<div class="state-message">Couldn't load your photos. Try refreshing.</div>`;
+        return;
+      }
+
+      if (!rows.length) {
+        grid.innerHTML = `<div class="state-message">No photos yet — head to the <a href="camera.html">camera</a> to take your first one.</div>`;
+        return;
+      }
+
+      // Sign every stored path so private-bucket images can render.
+      const withUrls = await Promise.all(rows.map(async (row) => {
+        const { data, error: signError } = await sb.storage
+          .from(PHOTOS_BUCKET)
+          .createSignedUrl(row.storage_path, SIGNED_URL_TTL);
+        return {
+          ...row,
+          url: signError ? null : data.signedUrl
+        };
+      }));
+
+      grid.innerHTML = "";
+      withUrls.forEach((photo) => {
+        if (!photo.url) return;
+
+        const card = document.createElement("div");
+        card.className = "card";
+        card.innerHTML = `
+          <img src="${photo.url}" alt="Photo taken ${formatDate(photo.taken_at)}" loading="lazy">
+          <div class="card-meta">${formatDate(photo.taken_at)}</div>
+        `;
+        card.addEventListener("click", () => openLightbox(photo));
+        grid.appendChild(card);
+      });
+    }
+
+    function openLightbox(photo) {
+      activePhotoId = photo.id;
+      lightboxImg.src = photo.url;
+      lightboxDate.textContent = formatDate(photo.taken_at);
+      lightboxDownload.href = photo.url;
+      lightboxDownload.download = `sinkos-photo-${photo.id}.jpg`;
+      lightbox.dataset.storagePath = photo.storage_path;
+      lightbox.classList.add("open");
+    }
+
+    function closeLightbox() {
+      lightbox.classList.remove("open");
+      activePhotoId = null;
+    }
+
+    lightboxClose.addEventListener("click", closeLightbox);
+    lightbox.addEventListener("click", (e) => {
+      if (e.target === lightbox) closeLightbox();
+    });
+
+    lightboxDelete.addEventListener("click", async () => {
+      if (!activePhotoId) return;
+      const storagePath = lightbox.dataset.storagePath;
+
+      lightboxDelete.disabled = true;
+      try {
+        const { error: storageError } = await sb.storage.from(PHOTOS_BUCKET).remove([storagePath]);
+        if (storageError) throw storageError;
+
+        const { error: dbError } = await sb.from(PHOTOS_TABLE).delete().eq("id", activePhotoId);
+        if (dbError) throw dbError;
+
+        toast("Photo deleted", "success");
+        closeLightbox();
+        loadPhotos();
+      } catch (err) {
+        console.error("Delete error:", err);
+        toast("Couldn't delete photo", "error");
+      } finally {
+        lightboxDelete.disabled = false;
+      }
+    });
+
+    // ---------- init ----------
+    (async function init() {
+      currentUser = await requireAuth();
+      if (!currentUser) return;
+
+      accountLabel.textContent = currentUser.email || currentUser.user_metadata?.username || "Signed in";
+      await loadPhotos();
+
+      sb.auth.onAuthStateChange((_event, session) => {
+        if (!session?.user) {
+          const redirect = encodeURIComponent(window.location.href);
+          window.location.href = `login.html?redirect_to=${redirect}`;
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

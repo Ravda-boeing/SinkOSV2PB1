@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sink OS V2 Desktop</title>
+<link rel="icon" href="favicon.png" type="image/x-icon">
+<style>
+  :root{
+    --aero-sky-top: #bfe4ff;
+    --aero-sky-bot: #4f9fe0;
+    --glass-fill: rgba(255,255,255,0.16);
+    --glass-fill-strong: rgba(255,255,255,0.28);
+    --glass-border: rgba(255,255,255,0.55);
+    --aero-blue: #2f7fd6;
+    --aero-blue-deep: #0e4f96;
+    --aero-glow: #8fe3ff;
+    --text: #f3fbff;
+    --text-dim: rgba(243,251,255,0.75);
+  }
+
+  *{ box-sizing: border-box; }
+
+  body{
+    margin:0;
+    height:100vh;
+    overflow:hidden;
+    font-family: 'Segoe UI', 'Segoe UI Semibold', Tahoma, sans-serif;
+    color: var(--text);
+
+    background-image:
+      linear-gradient(180deg, rgba(20,60,110,0.15) 0%, rgba(10,30,60,0.35) 100%),
+      url("assets/Screenshot 2026-01-06 170316.png");
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    position: relative;
+  }
+
+  /* soft aero light bloom in the corner, classic Aero glow */
+  body::before{
+    content:"";
+    position: fixed;
+    top: -20%;
+    left: -10%;
+    width: 60vw;
+    height: 60vw;
+    background: radial-gradient(circle, rgba(255,255,255,0.35) 0%, rgba(255,255,255,0) 70%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* ============ DESKTOP ICONS ============ */
+  .desktop-icons{
+    display:flex;
+    flex-direction: column;
+    gap: 22px;
+    padding: 28px;
+    position: relative;
+    z-index: 1;
+    width: fit-content;
+  }
+
+  .icon{
+    text-align:center;
+    cursor:pointer;
+    color:var(--text);
+    text-decoration:none;
+    width: 84px;
+    padding: 8px 4px 10px;
+    border-radius: 12px;
+    transition: background 0.18s ease, transform 0.12s ease, box-shadow 0.18s ease;
+    user-select: none;
+  }
+
+  .icon:hover{
+    background: linear-gradient(180deg, rgba(255,255,255,0.28), rgba(255,255,255,0.08));
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.45), 0 4px 14px rgba(0,0,0,0.18);
+    transform: translateY(-2px);
+  }
+
+  .icon:active{ transform: translateY(0); }
+
+  .icon img{
+    width:56px;
+    height:56px;
+    filter: drop-shadow(0 3px 6px rgba(0,0,0,0.35));
+    pointer-events: none;
+  }
+
+  .icon div{
+    margin-top: 6px;
+    font-size: 12.5px;
+    font-weight: 600;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.65);
+    letter-spacing: 0.2px;
+  }
+
+  /* ============ TASKBAR (Aero glass pill, centered) ============ */
+  .taskbar-wrap{
+    position: fixed;
+    bottom: 14px;
+    left: 0;
+    right: 0;
+    display: flex;
+    justify-content: center;
+    align-items: flex-end;
+    gap: 14px;
+    z-index: 20;
+    pointer-events: none;
+  }
+
+  .taskbar-wrap > *{ pointer-events: auto; }
+
+  .taskbar{
+    display:flex;
+    align-items:center;
+    gap: 6px;
+    padding: 8px 14px;
+    border-radius: 999px;
+
+    background: linear-gradient(180deg, var(--glass-fill-strong) 0%, var(--glass-fill) 55%, rgba(255,255,255,0.10) 100%);
+    border: 1px solid var(--glass-border);
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.8),
+      inset 0 -6px 14px rgba(255,255,255,0.10),
+      0 8px 24px rgba(6,22,48,0.35);
+    backdrop-filter: blur(14px) saturate(160%);
+    -webkit-backdrop-filter: blur(14px) saturate(160%);
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* glossy top highlight sweep, classic Aero */
+  .taskbar::before{
+    content:"";
+    position:absolute;
+    top:0; left:0; right:0;
+    height: 46%;
+    background: linear-gradient(180deg, rgba(255,255,255,0.55), rgba(255,255,255,0));
+    border-radius: 999px 999px 40% 40% / 999px 999px 100% 100%;
+    pointer-events: none;
+  }
+
+  .taskbar button{
+    position: relative;
+    z-index: 1;
+    background: transparent;
+    border: none;
+    color: var(--text);
+    cursor: pointer;
+    font-size: 18px;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    transition: background 0.15s ease, transform 0.12s ease, box-shadow 0.15s ease;
+  }
+
+  .taskbar button:hover{
+    background: radial-gradient(circle at 50% 30%, rgba(255,255,255,0.55), rgba(255,255,255,0.12) 70%);
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.5), 0 3px 10px rgba(0,0,0,0.2);
+    transform: translateY(-2px);
+  }
+
+  .taskbar button:active{ transform: translateY(0) scale(0.96); }
+
+  .taskbar .divider{
+    width:1px;
+    height: 24px;
+    background: linear-gradient(180deg, transparent, rgba(255,255,255,0.6), transparent);
+    margin: 0 4px;
+  }
+
+  /* ============ START ORB ============ */
+  .start-container{ position: relative; }
+
+  .start-btn{
+    display:flex;
+    align-items:center;
+    gap: 9px;
+    padding: 9px 20px 9px 14px;
+    border-radius: 999px;
+    border: 1px solid var(--glass-border);
+    cursor: pointer;
+    color: var(--text);
+    font-weight: 700;
+    font-size: 14.5px;
+    letter-spacing: 0.3px;
+
+    background: linear-gradient(180deg, #7fc3ff 0%, var(--aero-blue) 45%, var(--aero-blue-deep) 100%);
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.85),
+      inset 0 -8px 16px rgba(6,30,70,0.35),
+      0 8px 22px rgba(10,40,90,0.45);
+    position: relative;
+    overflow: hidden;
+    transition: transform 0.12s ease, box-shadow 0.15s ease;
+  }
+
+  .start-btn::before{
+    content:"";
+    position:absolute;
+    top:0; left:0; right:0;
+    height: 50%;
+    background: linear-gradient(180deg, rgba(255,255,255,0.65), rgba(255,255,255,0));
+    border-radius: 999px 999px 60% 60% / 999px 999px 100% 100%;
+    pointer-events:none;
+  }
+
+  .start-btn:hover{
+    transform: translateY(-2px);
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.9),
+      inset 0 -8px 16px rgba(6,30,70,0.35),
+      0 10px 26px rgba(10,40,90,0.55),
+      0 0 18px rgba(143,227,255,0.55);
+  }
+
+  .start-btn:active{ transform: translateY(0); }
+
+  .start-orb{
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #ffffff, var(--aero-glow) 40%, var(--aero-blue) 75%);
+    box-shadow: inset 0 -2px 3px rgba(0,0,0,0.25), 0 0 8px rgba(143,227,255,0.7);
+    flex-shrink: 0;
+  }
+
+  /* ============ START MENU (Aero glass panel) ============ */
+  .start-menu{
+    position: absolute;
+    bottom: calc(100% + 12px);
+    left: 0;
+    width: 220px;
+    padding: 10px;
+    border-radius: 16px;
+
+    background: linear-gradient(180deg, rgba(30,60,100,0.55) 0%, rgba(10,30,60,0.55) 100%);
+    border: 1px solid var(--glass-border);
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.5),
+      0 14px 34px rgba(0,10,30,0.5);
+    backdrop-filter: blur(18px) saturate(160%);
+    -webkit-backdrop-filter: blur(18px) saturate(160%);
+
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+
+    opacity: 0;
+    transform: translateY(8px) scale(0.97);
+    pointer-events: none;
+    transition: opacity 0.16s ease, transform 0.16s ease;
+  }
+
+  .start-menu.open{
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    pointer-events: auto;
+  }
+
+  .start-menu .menu-label{
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-dim);
+    padding: 6px 10px 4px;
+  }
+
+  .start-menu button{
+    display:flex;
+    align-items:center;
+    gap: 10px;
+    width: 100%;
+    text-align: left;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid transparent;
+    color: var(--text);
+    font-size: 14px;
+    font-weight: 600;
+    padding: 10px 12px;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: background 0.14s ease, border-color 0.14s ease, transform 0.1s ease;
+  }
+
+  .start-menu button .glyph{ font-size: 16px; width: 20px; text-align: center; }
+
+  .start-menu button:hover{
+    background: linear-gradient(180deg, rgba(255,255,255,0.24), rgba(255,255,255,0.06));
+    border-color: rgba(255,255,255,0.4);
+    transform: translateX(2px);
+  }
+
+  .start-menu button.danger:hover{
+    background: linear-gradient(180deg, rgba(255,120,120,0.3), rgba(255,60,60,0.08));
+    border-color: rgba(255,150,150,0.5);
+  }
+
+  .taskbar-label{
+    position: relative;
+    z-index: 1;
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.4px;
+    padding: 0 8px;
+    color: var(--text-dim);
+  }
+
+  @media (max-width: 640px){
+    .taskbar-wrap{ bottom: 8px; }
+    .taskbar{ gap: 2px; padding: 6px 8px; }
+    .taskbar button{ width: 34px; height: 34px; font-size: 15px; }
+    .start-btn{ padding: 8px 14px 8px 10px; font-size: 13px; }
+  }
+</style>
+</head>
+
+<body>
+
+  <!-- Desktop Icons -->
+  <div class="desktop-icons">
+    <div class="icon" id="filesIcon">
+      <img src="assets/image-removebg-preview.png" alt="Folder">
+      <div>Files</div>
+    </div>
+
+    <div class="icon" onclick="window.location.href='writer.html'">
+      <img src="assets/Copilot_20260512_112850-removebg-preview.png" alt="Writer">
+      <div>Writer</div>
+    </div>
+
+    <div class="icon" onclick="window.location.href='camera.html'">
+      <img src="assets/18965897-removebg-preview.png" alt="Camera">
+      <div>Camera</div>
+    </div>
+
+    <div class="icon" onclick="window.location.href='gallery.html'">
+      <img src="assets/Screenshot 2026-06-09 144905.png" alt="Gallery">
+      <div>Gallery</div>
+    </div>
+  </div>
+
+  <!-- Taskbar -->
+  <div class="taskbar-wrap">
+
+    <div class="start-container">
+      <button class="start-btn" id="startBtn" aria-haspopup="true" aria-expanded="false">
+        <span class="start-orb"></span>
+        SinkOS V2
+      </button>
+
+      <div class="start-menu" id="startMenu">
+        <div class="menu-label">Power</div>
+        <button onclick="window.location.href='lockscreen.html'">
+          <span class="glyph">🔒</span> Lock Screen
+        </button>
+        <button onclick="window.location.href='restarting.html'">
+          <span class="glyph">🔄</span> Restart
+        </button>
+        <button class="danger" onclick="window.location.href='shutting.html'">
+          <span class="glyph">⏻</span> Shut Down
+        </button>
+      </div>
+    </div>
+
+    <div class="taskbar">
+      <span class="taskbar-label">Apps</span>
+      <div class="divider"></div>
+
+      <button title="Writer" onclick="window.location.href='writer.html'">✏️</button>
+      <button title="Camera" onclick="window.location.href='camera.html'">📷</button>
+      <button title="Gallery" onclick="window.location.href='gallery.html'">🖼️</button>
+      <button title="Terminal" onclick="window.location.href='terminall.html'">🖥️</button>
+      <button title="Settings" onclick="window.location.href='settings.html'">⚙️</button>
+      <button title="Code" onclick="window.location.href='code.html'">💻</button>
+      <button title="Chat" onclick="window.location.href='chat.html'">💬</button>
+      <button title="Nexus" onclick="window.location.href='Nexus/nexus.html'">🤖</button>
+      <button title="Charts" onclick="window.location.href='charts/chart.html'">📊</button>
+      <button title="Presentation" onclick="window.location.href='presentation.html'">📈</button>
+    </div>
+
+  </div>
+
+  <script>
+    const startBtn = document.getElementById('startBtn');
+    const startMenu = document.getElementById('startMenu');
+
+    startBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const isOpen = startMenu.classList.toggle('open');
+      startBtn.setAttribute('aria-expanded', isOpen);
+    });
+
+    document.addEventListener('click', (e) => {
+      if (!startMenu.contains(e.target) && e.target !== startBtn) {
+        startMenu.classList.remove('open');
+        startBtn.setAttribute('aria-expanded', 'false');
+      }
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        startMenu.classList.remove('open');
+        startBtn.setAttribute('aria-expanded', 'false');
+      }
+    });
+  </script>
+
+  <script type="module" src="dist/desktop.js"></script>
+</body>
+</html>

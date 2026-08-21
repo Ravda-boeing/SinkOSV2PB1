@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <link rel="icon" href="favicon.png" type="image/x-icon">
+  <title>Sink Terminal</title>
+
+  <style>
+    body {
+      background: #000000;
+      color: #FFFFFF;
+      font-family: Consolas, "Lucida Console", monospace;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      height: 100vh;
+      padding-top: 40px;
+      transition: opacity 2s ease;
+    }
+
+    .terminal {
+      background: #000000;
+      border: 2px solid #3f3f3f;
+      width: 900px;
+      height: 80vh;
+      padding: 10px;
+      overflow-y: auto;
+      box-shadow: 0 0 0 2px #1a1a1a;
+    }
+
+    .titlebar {
+      width: 900px;
+      background: #0c0c0c;
+      color: #ffffff;
+      padding: 6px 10px;
+      font-size: 14px;
+      border: 2px solid #3f3f3f;
+      border-bottom: none;
+      user-select: none;
+    }
+
+    .line {
+      margin-bottom: 6px;
+    }
+
+    .input-line {
+      display: flex;
+      align-items: center;
+      margin-top: 10px;
+    }
+
+    .input-line span {
+      color: #FFFFFF;
+      margin-right: 8px;
+    }
+
+    .input-line input {
+      background: transparent;
+      border: none;
+      color: #FFFFFF;
+      font-family: Consolas, "Lucida Console", monospace;
+      font-size: 1em;
+      flex-grow: 1;
+      outline: none;
+      caret-color: #FFFFFF;
+    }
+
+    .fade-out {
+      opacity: 0;
+    }
+  </style>
+</head>
+
+<body>
+
+  <div class="titlebar">C:\Windows\System32\cmd.exe</div>
+
+  <div class="terminal" id="terminal">
+    <div class="line">Sink OS V2 [Version PB1]</div>
+    <div class="line">(c) Sink Corporation. All rights reserved.</div>
+    <br>
+    <div class="line">Sink OS V2 Terminal Ready.</div>
+
+    <div class="input-line">
+      <span>C:\SinkOS></span>
+      <input type="text" id="input" autocomplete="off" />
+    </div>
+  </div>
+
+  <script>
+    const input = document.getElementById('input');
+    const terminal = document.getElementById('terminal');
+    const body = document.body;
+
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        const cmd = input.value;
+        appendLine("C:\\SinkOS> " + cmd);
+        const output = interpretCommand(cmd);
+        if (output) appendLine(output);
+        input.value = '';
+      }
+    });
+
+    function appendLine(text) {
+      const line = document.createElement('div');
+      line.className = 'line';
+      line.textContent = text;
+      terminal.insertBefore(line, terminal.querySelector('.input-line'));
+      terminal.scrollTop = terminal.scrollHeight;
+    }
+
+    function interpretCommand(cmd) {
+      switch (cmd.toLowerCase()) {
+        case 'ext_safe_mode':
+          return 'Command Ignored. Process Already Active.';
+        case 'ent_safe_mode':
+          safeModeSequence();
+          return 'Entering Sink OS Safe Mode...';
+        case 'best quote':
+          return 'Iggle piggle Iggle onk, We are going to catch, the ninky Nonk';
+        case 'status':
+          return 'System Status: Active | Memory Sync 87% | Codename Water[✓]';
+        case 'mode s+':
+          return 'Engaging Command Ritual Mode… Echoes aligned.';
+        case 'sink.boot':
+          return 'Boot Pulse: Krubb Wenkroist engaged. Rhythm locked.';
+        case 'sink.ai':
+          return 'Sink.ai Response: "I am not real. I am rhythm."';
+        case 'sink.trees()':
+          return 'I am the Lorax, I speak for the trees, and for some damn reason they are speaking Vietnamese';
+        case 'sink.del':
+          showSinkDelMessages();
+          return '';
+        case 'sink.del.history':
+          showSinkDelHistoryMessages();
+          return '';
+        case 'shutdown':
+          shutdownSequence();
+          return 'Initiating shutdown protocol...';
+        case 'restart':
+          restartSequence();
+          return 'Initiating restart protocol...';
+        case 'rizz':
+          return 'Are you Tennessee? Because you’re the only 10 I see';
+        case 'help':
+          return `Available commands: Sink.del, Sink.del.history, Sink.boot, Sink.ai, Sink.trees(), status, best quote, mode s+, shutdown, restart, ent_safe_mode, ext_safe_mode, rizz, clang, chez`;
+        case 'clang':
+          redirectToClang();
+          return 'Redirecting to Clang.html...';
+        case 'chez':
+          redirectToChez();
+          return 'Redirecting to chez.html...';
+        default:
+          return `'${cmd}' is not recognized as an internal or external command.`;
+      }
+    }
+
+    function showSinkDelMessages() {
+      const messages = [
+        "Clearing system data",
+        "Removing files from Files",
+        "Restoring to defaults",
+        "ERROR: History is not an external file",
+        "It is internal.",
+        "It is eternal.",
+        "We know what you searched👀",
+        "Nice try..."
+      ];
+      messages.forEach((msg, index) => {
+        setTimeout(() => appendLine(msg), index * 1000);
+      });
+    }
+
+    function showSinkDelHistoryMessages() {
+      const messages = [
+        "Initiating forget protocol... failed",
+        "Echoes logged.",
+        "Myth engraved",
+        "Recommendation: Live with it",
+        "You tried, but failed",
+        "The truth will be revealed",
+        "You tried to be the innocent one",
+        "You tried to be the role model",
+        "You tried to be the one Asian parents compared their child to",
+        "And you tried to hide the dirty stuff you searched",
+        "You say that you're not a gooner, but is that really true?",
+        "In front of everyone you're the best person there is",
+        "To the search browser you're someone else",
+        "So we'll store it for future reference",
+        "Welcome to Sink OS",
+        "You fell for a trick",
+        "You thought this would delete your search history if Sink.del didn't work",
+        "When in reality, this saves it in our servers",
+        "We could leak it",
+        "But we won't",
+        "But take it as a warning",
+        "As we know what you searched",
+        "And remember this,",
+        "It will",
+        "never",
+        "be",
+        "forgotten",
+        "From the anti-goon foundation of absolutely nowhere"
+      ];
+      messages.forEach((msg, index) => {
+        setTimeout(() => appendLine(msg), index * 1000);
+      });
+    }
+
+    function shutdownSequence() {
+      setTimeout(() => {
+        body.classList.add('fade-out');
+        setTimeout(() => {
+          window.location.href = 'shutdownn.html';
+        }, 2000);
+      }, 1000);
+    }
+
+    function restartSequence() {
+      setTimeout(() => {
+        body.classList.add('fade-out');
+        setTimeout(() => {
+          window.location.href = 'shutdownr.html';
+        }, 2000);
+      }, 1000);
+    }
+
+    function safeModeSequence() {
+      setTimeout(() => {
+        body.classList.add('fade-out');
+        setTimeout(() => {
+          window.location.href = 'bgs.html';
+        }, 2000);
+      }, 1000);
+    }
+
+    function redirectToClang() {
+      setTimeout(() => {
+        body.classList.add('fade-out');
+        setTimeout(() => {
+          window.location.href = 'clang.html';
+        }, 2000);
+      }, 1000);
+    }
+
+    function redirectToChez() {
+      setTimeout(() => {
+        body.classList.add('fade-out');
+        setTimeout(() => {
+          window.location.href = 'chez.html';
+        }, 2000);
+      }, 1000);
+    }
+  </script>
+
+</body>
+</html>

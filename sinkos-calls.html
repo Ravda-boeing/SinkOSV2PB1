@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Sink OS — Calls</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --blur: 28px;
+    --radius: 20px;
+    --radius-sm: 14px;
+    --font-display: 'Space Grotesk', 'Inter', sans-serif;
+    --font-body: 'Inter', sans-serif;
+  }
+  html[data-theme="dark"] {
+    --bg-0: #0b0d14;
+    --orb-1: #4f6df5;
+    --orb-2: #8b5cf6;
+    --orb-3: #22d3ee;
+    --glass: rgba(255,255,255,0.06);
+    --glass-strong: rgba(255,255,255,0.10);
+    --glass-border: rgba(255,255,255,0.14);
+    --text: #f2f3f7;
+    --text-dim: rgba(242,243,247,0.56);
+    --text-faint: rgba(242,243,247,0.32);
+    --accent: #7c9bff;
+    --accent-strong: #a78bfa;
+    --danger: #ff6b6b;
+    --online: #4ade80;
+    --shadow: 0 8px 32px rgba(0,0,0,0.45);
+    --input-bg: rgba(255,255,255,0.05);
+  }
+  html[data-theme="light"] {
+    --bg-0: #eef1f8;
+    --orb-1: #a9c1ff;
+    --orb-2: #cdb8ff;
+    --orb-3: #a6e8f5;
+    --glass: rgba(255,255,255,0.55);
+    --glass-strong: rgba(255,255,255,0.72);
+    --glass-border: rgba(255,255,255,0.9);
+    --text: #14151c;
+    --text-dim: rgba(20,21,28,0.58);
+    --text-faint: rgba(20,21,28,0.34);
+    --accent: #5b6ff0;
+    --accent-strong: #8b5cf6;
+    --danger: #e0435a;
+    --online: #22c069;
+    --shadow: 0 8px 32px rgba(80,90,140,0.18);
+    --input-bg: rgba(255,255,255,0.5);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; font-family: var(--font-body); }
+  body { background: var(--bg-0); color: var(--text); overflow: hidden; transition: background 0.4s ease; }
+
+  .orb { position: fixed; border-radius: 50%; filter: blur(90px); opacity: 0.55; z-index: 0; pointer-events: none; animation: drift 26s ease-in-out infinite alternate; }
+  .orb1 { width: 480px; height: 480px; background: var(--orb-1); top: -140px; left: -100px; }
+  .orb2 { width: 420px; height: 420px; background: var(--orb-2); bottom: -160px; right: -80px; animation-delay: -8s; }
+  .orb3 { width: 360px; height: 360px; background: var(--orb-3); top: 40%; left: 60%; animation-delay: -16s; }
+  @keyframes drift { 0% { transform: translate(0,0) scale(1); } 100% { transform: translate(40px,-30px) scale(1.08); } }
+
+  .glass { background: var(--glass); backdrop-filter: blur(var(--blur)) saturate(160%); -webkit-backdrop-filter: blur(var(--blur)) saturate(160%); border: 1px solid var(--glass-border); box-shadow: var(--shadow); }
+
+  .screen { position: fixed; inset: 0; z-index: 1; display: none; align-items: center; justify-content: center; }
+  .screen.active { display: flex; }
+
+  /* Auth */
+  #authScreen { flex-direction: column; }
+  .authBox { width: 340px; padding: 36px; border-radius: var(--radius); }
+  .authBox h1 { font-family: var(--font-display); font-size: 20px; margin: 0 0 4px; font-weight: 700; background: linear-gradient(120deg, var(--accent), var(--accent-strong)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .authBox p.sub { color: var(--text-dim); font-size: 12.5px; margin: 0 0 26px; }
+  .field { margin-bottom: 14px; }
+  .field label { display: block; font-size: 10.5px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 1.2px; margin-bottom: 6px; font-weight: 600; }
+  .field input { width: 100%; padding: 11px 14px; background: var(--input-bg); border: 1px solid var(--glass-border); border-radius: var(--radius-sm); color: var(--text); font-family: var(--font-body); font-size: 13.5px; }
+  .field input:focus { outline: none; border-color: var(--accent); }
+  button { font-family: var(--font-body); cursor: pointer; }
+  button.primary { width: 100%; padding: 12px; border: none; border-radius: var(--radius-sm); background: linear-gradient(120deg, var(--accent), var(--accent-strong)); color: #fff; font-weight: 600; font-size: 13px; margin-top: 6px; }
+  .authError { color: var(--danger); font-size: 11.5px; margin-top: 12px; min-height: 14px; }
+
+  /* Idle */
+  #idleScreen { flex-direction: column; }
+  .idleCard { padding: 36px 48px; border-radius: var(--radius); text-align: center; }
+  .idleCard h2 { font-family: var(--font-display); font-size: 18px; margin: 0 0 8px; }
+  .idleCard p { color: var(--text-dim); font-size: 13px; margin: 0; }
+  .idleUser { font-size: 11px; color: var(--text-faint); margin-top: 8px; }
+  .signOutLink { background: none; border: none; color: var(--text-faint); font-size: 11px; text-decoration: underline; margin-top: 16px; display: block; cursor: pointer; }
+
+  /* Voice call */
+  #voiceScreen { flex-direction: column; background: var(--bg-0); }
+  .voiceInfo { display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 1; gap: 14px; }
+  .voiceAvatar { width: 110px; height: 110px; border-radius: 50%; background: linear-gradient(135deg, var(--accent), var(--accent-strong)); display: flex; align-items: center; justify-content: center; color: #fff; font-family: var(--font-display); font-size: 40px; font-weight: 700; box-shadow: 0 12px 40px rgba(124,155,255,0.3); }
+  .voiceName { font-family: var(--font-display); font-size: 26px; font-weight: 700; }
+  .voiceStatus { font-size: 13px; color: var(--text-dim); }
+  .voiceTimer { font-size: 13px; color: var(--text-faint); font-variant-numeric: tabular-nums; display: none; }
+  .voiceControls { display: flex; align-items: center; justify-content: center; gap: 20px; padding: 40px; }
+
+  /* Video call */
+  #videoScreen { background: #000; }
+  #remoteVideo { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 0; }
+  #localVideo { position: absolute; bottom: 110px; right: 20px; width: 160px; height: 110px; object-fit: cover; border-radius: var(--radius-sm); border: 2px solid rgba(255,255,255,0.2); z-index: 2; background: #111; }
+  .videoOverlayTop { position: absolute; top: 0; left: 0; right: 0; z-index: 3; padding: 24px; background: linear-gradient(to bottom, rgba(0,0,0,0.55), transparent); }
+  .videoOverlayTop .vName { font-family: var(--font-display); font-size: 16px; font-weight: 600; color: #fff; }
+  .videoOverlayTop .vStatus { font-size: 11px; color: rgba(255,255,255,0.65); margin-top: 2px; }
+  .videoControls { position: absolute; bottom: 0; left: 0; right: 0; z-index: 3; padding: 20px; display: flex; align-items: center; justify-content: center; gap: 16px; background: linear-gradient(to top, rgba(0,0,0,0.55), transparent); }
+
+  /* Controls */
+  .ctrlBtn { width: 56px; height: 56px; border-radius: 50%; border: 1px solid var(--glass-border); background: var(--glass); backdrop-filter: blur(12px); color: var(--text); font-size: 20px; display: flex; align-items: center; justify-content: center; transition: background 0.2s, transform 0.15s; }
+  .ctrlBtn:hover { background: var(--glass-strong); transform: translateY(-2px); }
+  .ctrlBtn.toggled { background: var(--glass-strong); border-color: var(--accent); }
+  .ctrlBtn.hangup { background: var(--danger); border-color: transparent; width: 68px; height: 68px; font-size: 24px; box-shadow: 0 4px 24px rgba(255,107,107,0.4); }
+  .ctrlBtn.hangup:hover { background: #ff4040; }
+
+  /* Wait/ended */
+  #waitScreen { flex-direction: column; }
+  .waitCard { padding: 40px 48px; border-radius: var(--radius); text-align: center; }
+  .waitCard h2 { font-family: var(--font-display); font-size: 20px; margin: 0 0 8px; }
+  .waitCard p { color: var(--text-dim); font-size: 13px; margin: 0 0 24px; }
+  .waitCard button { padding: 11px 28px; border: none; border-radius: var(--radius-sm); background: var(--danger); color: #fff; font-weight: 600; font-size: 13px; font-family: var(--font-body); }
+  .dots::after { content: ''; animation: dots 1.5s steps(4,end) infinite; }
+  @keyframes dots { 0%,100%{content:''} 25%{content:'.'} 50%{content:'..'} 75%{content:'...'} }
+</style>
+</head>
+<body>
+<div class="orb orb1"></div>
+<div class="orb orb2"></div>
+<div class="orb orb3"></div>
+
+<!-- AUTH -->
+<div class="screen active" id="authScreen">
+  <div class="authBox glass">
+    <h1>Sink OS Calls</h1>
+    <p class="sub">Sign in with your Sink OS account</p>
+    <div class="field"><label>Email</label><input type="email" id="authEmail" placeholder="you@example.com" autocomplete="username"></div>
+    <div class="field"><label>Password</label><input type="password" id="authPassword" placeholder="••••••••" autocomplete="current-password"></div>
+    <button class="primary" id="signInBtn">Sign In</button>
+    <div class="authError" id="authError"></div>
+  </div>
+</div>
+
+<!-- IDLE -->
+<div class="screen" id="idleScreen">
+  <div class="idleCard glass">
+    <h2>Sink OS Calls</h2>
+    <p>Open a chat and press 📞 or 🎥 to start a call.</p>
+    <p class="idleUser" id="idleUser"></p>
+    <button class="signOutLink" id="signOutBtn">Sign out</button>
+  </div>
+</div>
+
+<!-- VOICE CALL -->
+<div class="screen" id="voiceScreen">
+  <div class="voiceInfo">
+    <div class="voiceAvatar" id="voiceAvatar"></div>
+    <div class="voiceName" id="voiceName"></div>
+    <div class="voiceStatus" id="voiceStatus">Connecting<span class="dots"></span></div>
+    <div class="voiceTimer" id="voiceTimer"></div>
+  </div>
+  <div class="voiceControls">
+    <button class="ctrlBtn" id="muteBtn">🎤</button>
+    <button class="ctrlBtn hangup" id="hangupBtn">📵</button>
+    <button class="ctrlBtn" id="speakerBtn">🔊</button>
+  </div>
+</div>
+
+<!-- VIDEO CALL -->
+<div class="screen" id="videoScreen">
+  <video id="remoteVideo" autoplay playsinline></video>
+  <video id="localVideo" autoplay playsinline muted></video>
+  <div class="videoOverlayTop">
+    <div class="vName" id="videoName"></div>
+    <div class="vStatus" id="videoStatus">Connecting<span class="dots"></span></div>
+  </div>
+  <div class="videoControls">
+    <button class="ctrlBtn" id="muteBtnV">🎤</button>
+    <button class="ctrlBtn" id="camBtn">📷</button>
+    <button class="ctrlBtn hangup" id="hangupBtnV">📵</button>
+  </div>
+</div>
+
+<!-- WAIT / ENDED -->
+<div class="screen" id="waitScreen">
+  <div class="waitCard glass">
+    <h2 id="waitTitle">Ending call</h2>
+    <p id="waitMsg"></p>
+    <button id="closeBtn">Close</button>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// CONFIG
+// ============================================================
+const SUPABASE_URL      = "https://okknkixdbjsnqrwlfgzn.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9ra25raXhkYmpzbnFyd2xmZ3puIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI1NzgwNzQsImV4cCI6MjA5ODE1NDA3NH0.L2QDUnez8KjIM8yg9cB9cs-tTq6nedk3CCpuJBjWBEg";
+
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+const ICE_SERVERS = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' }
+  ]
+};
+
+// ---------- Theme ----------
+document.documentElement.setAttribute('data-theme', localStorage.getItem('sinkos-chat-theme') || 'dark');
+
+// ---------- URL params ----------
+const params      = new URLSearchParams(window.location.search);
+const urlRole     = params.get('role');     // 'caller' | 'receiver' | null
+const urlCallId   = params.get('callId');   // only present for receiver
+const urlType     = params.get('type') || 'voice';
+const urlTo       = params.get('to');       // other person's user ID
+const urlToName   = params.get('toName') || 'Unknown';
+const urlFrom     = params.get('from');     // our user ID (as passed by chat app)
+const urlFromName = params.get('fromName') || 'Unknown';
+
+// ---------- State ----------
+let currentUser  = null;
+let currentProfile = null;
+let callId       = urlCallId || null;
+let callType     = urlType;
+let otherName    = urlRole === 'caller' ? urlToName : urlFromName;
+let otherId      = urlRole === 'caller' ? urlTo : urlFrom;
+let pc           = null;
+let localStream  = null;
+let remoteAudio  = null;
+let signalCh     = null;
+let muted        = false;
+let camOff       = false;
+let callTimer    = null;
+let callSeconds  = 0;
+
+// ---------- DOM ----------
+const authScreen  = document.getElementById('authScreen');
+const idleScreen  = document.getElementById('idleScreen');
+const voiceScreen = document.getElementById('voiceScreen');
+const videoScreen = document.getElementById('videoScreen');
+const waitScreen  = document.getElementById('waitScreen');
+
+const authEmail   = document.getElementById('authEmail');
+const authPassword = document.getElementById('authPassword');
+const authError   = document.getElementById('authError');
+const signInBtn   = document.getElementById('signInBtn');
+const signOutBtn  = document.getElementById('signOutBtn');
+const idleUser    = document.getElementById('idleUser');
+
+const voiceAvatar = document.getElementById('voiceAvatar');
+const voiceName   = document.getElementById('voiceName');
+const voiceStatus = document.getElementById('voiceStatus');
+const voiceTimer  = document.getElementById('voiceTimer');
+const muteBtn     = document.getElementById('muteBtn');
+const hangupBtn   = document.getElementById('hangupBtn');
+
+const videoName   = document.getElementById('videoName');
+const videoStatus = document.getElementById('videoStatus');
+const muteBtnV    = document.getElementById('muteBtnV');
+const camBtn      = document.getElementById('camBtn');
+const hangupBtnV  = document.getElementById('hangupBtnV');
+const remoteVideo = document.getElementById('remoteVideo');
+const localVideo  = document.getElementById('localVideo');
+
+const waitTitle   = document.getElementById('waitTitle');
+const waitMsg     = document.getElementById('waitMsg');
+const closeBtn    = document.getElementById('closeBtn');
+
+function initials(name) { return (name || '?').slice(0, 2).toUpperCase(); }
+
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+
+function showEnded(title, msg) {
+  waitTitle.textContent = title;
+  waitMsg.textContent = msg;
+  showScreen('waitScreen');
+}
+
+// ---------- Auth ----------
+signInBtn.addEventListener('click', async () => {
+  authError.textContent = '';
+  const email = authEmail.value.trim();
+  const password = authPassword.value;
+  if (!email || !password) { authError.textContent = 'Enter your email and password.'; return; }
+  signInBtn.textContent = 'Signing in...';
+  const { error } = await sb.auth.signInWithPassword({ email, password });
+  signInBtn.textContent = 'Sign In';
+  if (error) authError.textContent = error.message;
+});
+
+signOutBtn.addEventListener('click', async () => {
+  await sb.auth.signOut();
+  showScreen('authScreen');
+});
+
+closeBtn.addEventListener('click', () => window.close());
+
+// ---------- Init ----------
+init();
+
+async function init() {
+  const { data: { session } } = await sb.auth.getSession();
+  if (session) await handleSignedIn(session.user);
+  sb.auth.onAuthStateChange((event, session) => {
+    if (event === 'SIGNED_IN' && session) handleSignedIn(session.user);
+    if (event === 'SIGNED_OUT') showScreen('authScreen');
+  });
+}
+
+async function handleSignedIn(user) {
+  currentUser = user;
+  const { data: profile } = await sb.from('profiles').select('*').eq('id', user.id).single();
+  currentProfile = profile;
+
+  if (urlRole === 'caller') {
+    await startAsCaller();
+  } else if (urlRole === 'receiver' && urlCallId) {
+    await startAsReceiver();
+  } else {
+    // No role — idle screen
+    idleUser.textContent = profile ? '@' + profile.username : user.email;
+    showScreen('idleScreen');
+  }
+}
+
+// ---------- Media helper ----------
+async function getMedia() {
+  try {
+    localStream = await navigator.mediaDevices.getUserMedia({
+      audio: true,
+      video: callType === 'video'
+    });
+    return true;
+  } catch (e) {
+    showEnded('Permission denied', 'Allow microphone/camera access and try again.');
+    return false;
+  }
+}
+
+// ---------- Peer connection helper ----------
+function createPC() {
+  pc = new RTCPeerConnection(ICE_SERVERS);
+
+  localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+
+  pc.onicecandidate = async (e) => {
+    if (e.candidate) {
+      await sendSignal('ice', { candidate: e.candidate.toJSON() });
+    }
+  };
+
+  pc.ontrack = (e) => {
+    if (callType === 'video') {
+      remoteVideo.srcObject = e.streams[0];
+    } else {
+      if (remoteAudio) { remoteAudio.pause(); remoteAudio = null; }
+      remoteAudio = new Audio();
+      remoteAudio.srcObject = e.streams[0];
+      remoteAudio.play().catch(err => console.error('audio play error:', err));
+    }
+  };
+
+  pc.onconnectionstatechange = () => {
+    const state = pc.connectionState;
+    console.log('PC state:', state);
+    if (state === 'connected') {
+      onConnected();
+    } else if (['disconnected', 'failed', 'closed'].includes(state)) {
+      cleanup();
+      showEnded('Call ended', '');
+    }
+  };
+}
+
+// ---------- Caller flow ----------
+async function startAsCaller() {
+  callId = generateCallId();
+  callType = urlType;
+  otherName = urlToName;
+  otherId = urlTo;
+
+  setupCallUI();
+  if (!await getMedia()) return;
+  if (callType === 'video') localVideo.srcObject = localStream;
+
+  createPC();
+
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  await sendSignal('offer', { sdp: { type: offer.type, sdp: offer.sdp } });
+
+  subscribeToSignals();
+}
+
+// ---------- Receiver flow ----------
+async function startAsReceiver() {
+  callId = urlCallId;
+  callType = urlType;
+  otherName = urlToName;
+  otherId = urlTo;
+
+  setupCallUI();
+  if (!await getMedia()) return;
+  if (callType === 'video') localVideo.srcObject = localStream;
+
+  createPC();
+
+  // Fetch the existing offer
+  const { data: offerSig, error } = await sb
+    .from('call_signals')
+    .select('*')
+    .eq('call_id', callId)
+    .eq('type', 'offer')
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .single();
+
+  if (error || !offerSig) {
+    showEnded('Call not found', 'The call may have ended already.');
+    return;
+  }
+
+  await pc.setRemoteDescription(new RTCSessionDescription(offerSig.payload.sdp));
+  const answer = await pc.createAnswer();
+  await pc.setLocalDescription(answer);
+  await sendSignal('answer', { sdp: { type: answer.type, sdp: answer.sdp } });
+
+  subscribeToSignals();
+}
+
+// ---------- Signal subscription ----------
+function subscribeToSignals() {
+  if (signalCh) { sb.removeChannel(signalCh); signalCh = null; }
+  signalCh = sb.channel('signals-' + callId + '-' + currentUser.id);
+  signalCh
+    .on('postgres_changes', {
+      event: 'INSERT', schema: 'public', table: 'call_signals',
+      filter: 'to_id=eq.' + currentUser.id
+    }, async (payload) => {
+      const sig = payload.new;
+      if (sig.call_id !== callId) return;
+
+      if (sig.type === 'answer' && pc && pc.signalingState !== 'stable') {
+        try {
+          await pc.setRemoteDescription(new RTCSessionDescription(sig.payload.sdp));
+        } catch(e) { console.error('setRemoteDesc error:', e); }
+      }
+
+      if (sig.type === 'ice' && pc && sig.payload?.candidate) {
+        try {
+          await pc.addIceCandidate(new RTCIceCandidate(sig.payload.candidate));
+        } catch(e) {}
+      }
+
+      if (sig.type === 'hangup' || sig.type === 'reject') {
+        cleanup();
+        showEnded('Call ended', 'The other person ended the call.');
+      }
+    })
+    .subscribe();
+}
+
+// ---------- Send signal ----------
+async function sendSignal(type, payload) {
+  if (!currentUser || !otherId || !callId) return;
+  const { error } = await sb.from('call_signals').insert({
+    call_id: callId,
+    from_id: currentUser.id,
+    to_id: otherId,
+    type,
+    call_type: callType,
+    payload
+  });
+  if (error) console.error('sendSignal error:', error);
+}
+
+// ---------- UI ----------
+function setupCallUI() {
+  if (callType === 'video') {
+    videoName.textContent = '@' + otherName;
+    showScreen('videoScreen');
+  } else {
+    voiceAvatar.textContent = initials(otherName);
+    voiceName.textContent = '@' + otherName;
+    voiceStatus.innerHTML = 'Connecting<span class="dots"></span>';
+    showScreen('voiceScreen');
+  }
+}
+
+function onConnected() {
+  if (callType === 'video') {
+    videoStatus.textContent = 'Connected';
+  } else {
+    voiceStatus.textContent = 'Connected';
+    voiceTimer.style.display = 'block';
+    callTimer = setInterval(() => {
+      callSeconds++;
+      const m = String(Math.floor(callSeconds / 60)).padStart(2, '0');
+      const s = String(callSeconds % 60).padStart(2, '0');
+      voiceTimer.textContent = m + ':' + s;
+    }, 1000);
+  }
+}
+
+// ---------- Controls ----------
+muteBtn.addEventListener('click', () => toggleMute(muteBtn));
+muteBtnV.addEventListener('click', () => toggleMute(muteBtnV));
+
+function toggleMute(btn) {
+  muted = !muted;
+  if (localStream) localStream.getAudioTracks().forEach(t => t.enabled = !muted);
+  btn.textContent = muted ? '🔇' : '🎤';
+  btn.classList.toggle('toggled', muted);
+}
+
+camBtn.addEventListener('click', () => {
+  camOff = !camOff;
+  if (localStream) localStream.getVideoTracks().forEach(t => t.enabled = !camOff);
+  camBtn.textContent = camOff ? '🚫' : '📷';
+  camBtn.classList.toggle('toggled', camOff);
+});
+
+hangupBtn.addEventListener('click', doHangup);
+hangupBtnV.addEventListener('click', doHangup);
+
+async function doHangup() {
+  await sendSignal('hangup', {});
+  cleanup();
+  showEnded('Call ended', 'You ended the call.');
+}
+
+function cleanup() {
+  if (callTimer) { clearInterval(callTimer); callTimer = null; }
+  if (pc) { pc.close(); pc = null; }
+  if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
+  if (remoteAudio) { remoteAudio.pause(); remoteAudio = null; }
+  if (signalCh) { sb.removeChannel(signalCh); signalCh = null; }
+}
+
+// ---------- Utility ----------
+function generateCallId() {
+  if (crypto.randomUUID) return crypto.randomUUID();
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = Math.random() * 16 | 0;
+    return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+  });
+}
+</script>
+</body>
+</html>

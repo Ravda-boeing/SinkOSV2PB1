@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Sink Racer 3D – Core</title>
+<style>
+  html,body{
+    margin:0;padding:0;overflow:hidden;
+    background:#05060a;color:#fff;
+    font-family:system-ui,Segoe UI,Roboto,Arial;
+  }
+  #hud{
+    position:fixed;top:10px;left:10px;right:10px;
+    display:flex;justify-content:space-between;align-items:center;
+    font-size:13px;pointer-events:none;
+    text-shadow:0 0 6px #000;
+  }
+  #centerMsg{
+    position:fixed;top:50%;left:50%;
+    transform:translate(-50%,-50%);
+    text-align:center;font-size:18px;
+    text-shadow:0 0 10px #000;
+  }
+</style>
+</head>
+<body>
+<div id="hud">
+  <div>Speed: <span id="speedTxt">0</span> km/h</div>
+  <div>WASD to drive · SPACE brake</div>
+</div>
+<div id="centerMsg">Sink Racer 3D Core<br>WASD to move · Mouse to look</div>
+
+<script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
+<script src="https://unpkg.com/three@0.160.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+const speedTxt = document.getElementById("speedTxt");
+const centerMsg = document.getElementById("centerMsg");
+
+// basic three.js setup
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x05060a);
+
+const camera = new THREE.PerspectiveCamera(70, window.innerWidth/window.innerHeight, 0.1, 2000);
+camera.position.set(0, 6, -12);
+
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+document.body.appendChild(renderer.domElement);
+
+// lights
+const hemi = new THREE.HemisphereLight(0xffffff, 0x101018, 0.6);
+scene.add(hemi);
+
+const dir = new THREE.DirectionalLight(0xffffff, 0.9);
+dir.position.set(20,30,10);
+dir.castShadow = true;
+dir.shadow.mapSize.set(2048,2048);
+scene.add(dir);
+
+// ground / track plane
+const groundGeo = new THREE.PlaneGeometry(400, 400, 40, 40);
+const groundMat = new THREE.MeshStandardMaterial({
+  color:0x11151f,
+  roughness:0.9,
+  metalness:0.1
+});
+const ground = new THREE.Mesh(groundGeo, groundMat);
+ground.rotation.x = -Math.PI/2;
+ground.receiveShadow = true;
+scene.add(ground);
+
+// simple track markings (just some boxes)
+const laneMat = new THREE.MeshStandardMaterial({color:0x222a3a, emissive:0x050a18});
+for(let i=-2;i<=2;i++){
+  const strip = new THREE.Mesh(new THREE.BoxGeometry(4,0.05,200), laneMat);
+  strip.position.set(i*6,0.03,0);
+  strip.receiveShadow = true;
+  scene.add(strip);
+}
+
+// barriers
+const wallMat = new THREE.MeshStandardMaterial({color:0x202020, metalness:0.3, roughness:0.6});
+for(let side of [-1,1]){
+  const wall = new THREE.Mesh(new THREE.BoxGeometry(2,2,400), wallMat);
+  wall.position.set(side*20,1,0);
+  wall.castShadow = true;
+  wall.receiveShadow = true;
+  scene.add(wall);
+}
+
+// car model (simple but structured so you can swap later)
+const car = new THREE.Group();
+
+// body
+const bodyMat = new THREE.MeshStandardMaterial({
+  color:0x0a7bff,
+  metalness:0.7,
+  roughness:0.3,
+  emissive:0x001020
+});
+const body = new THREE.Mesh(new THREE.BoxGeometry(2.2,0.7,4), bodyMat);
+body.castShadow = true;
+body.position.y = 0.9;
+car.add(body);
+
+// cabin
+const cabinMat = new THREE.MeshStandardMaterial({
+  color:0x0b3b7f,
+  metalness:0.6,
+  roughness:0.2
+});
+const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.6,0.6,1.8), cabinMat);
+cabin.position.set(0,1.25,-0.2);
+cabin.castShadow = true;
+car.add(cabin);
+
+// wheels
+const wheelGeo = new THREE.CylinderGeometry(0.45,0.45,0.4,20);
+wheelGeo.rotateZ(Math.PI/2);
+const wheelMat = new THREE.MeshStandardMaterial({color:0x111111, metalness:0.4, roughness:0.5});
+
+function makeWheel(x,z){
+  const w = new THREE.Mesh(wheelGeo, wheelMat);
+  w.position.set(x,0.45,z);
+  w.castShadow = true;
+  car.add(w);
+  return w;
+}
+const wheels = [
+  makeWheel(-1.1, 1.4),
+  makeWheel( 1.1, 1.4),
+  makeWheel(-1.1,-1.4),
+  makeWheel( 1.1,-1.4),
+];
+
+scene.add(car);
+car.position.set(0,0,0);
+
+// orbit controls just for looking around (camera will be driven manually)
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.enablePan = false;
+controls.enableZoom = false;
+controls.target.copy(car.position);
+controls.update();
+
+// physics-ish car state
+let velocity = 0;        // forward speed
+let steerAngle = 0;      // current steering angle
+let heading = 0;         // car orientation (radians)
+const maxSteer = 0.6;
+const accel = 18;
+const brakeForce = 30;
+const drag = 2.2;
+const rolling = 1.2;
+const maxSpeed = 220 / 3.6; // m/s
+
+const keys = {};
+window.addEventListener("keydown",e=>{
+  keys[e.key.toLowerCase()] = true;
+  centerMsg.style.display = "none";
+});
+window.addEventListener("keyup",e=>{
+  keys[e.key.toLowerCase()] = false;
+});
+
+// resize
+window.addEventListener("resize",()=>{
+  camera.aspect = window.innerWidth/window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// main loop
+let lastTime = performance.now();
+function loop(now){
+  const dt = Math.min(0.05,(now-lastTime)/1000);
+  lastTime = now;
+
+  updateCar(dt);
+  updateCamera(dt);
+
+  renderer.render(scene,camera);
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+function updateCar(dt){
+  // input
+  const forward = (keys["w"]||keys["arrowup"]) ? 1 : 0;
+  const back    = (keys["s"]||keys["arrowdown"]) ? 1 : 0;
+  const left    = (keys["a"]||keys["arrowleft"]) ? 1 : 0;
+  const right   = (keys["d"]||keys["arrowright"]) ? 1 : 0;
+  const braking = keys[" "] || keys["space"];
+
+  // acceleration / braking
+  let force = 0;
+  if(forward) force += accel;
+  if(back)    force -= accel*0.7;
+  if(braking) force -= brakeForce * Math.sign(velocity);
+
+  // drag + rolling resistance
+  force -= drag * velocity * Math.abs(velocity);
+  force -= rolling * velocity;
+
+  // integrate velocity
+  velocity += force * dt;
+  const maxV = maxSpeed;
+  if(velocity >  maxV) velocity =  maxV;
+  if(velocity < -maxV*0.4) velocity = -maxV*0.4;
+
+  // steering
+  let steerInput = 0;
+  if(left)  steerInput += 1;
+  if(right) steerInput -= 1;
+
+  const targetSteer = steerInput * maxSteer * (1 - Math.min(1, Math.abs(velocity)/maxV*0.4));
+  steerAngle += (targetSteer - steerAngle) * 8 * dt;
+
+  // bicycle model-ish turning
+  const wheelBase = 2.6;
+  const angularVel = velocity * Math.tan(steerAngle) / wheelBase;
+  heading += angularVel * dt;
+
+  // move car
+  const dx = Math.sin(heading) * velocity * dt;
+  const dz = Math.cos(heading) * velocity * dt;
+  car.position.x += dx;
+  car.position.z += dz;
+  car.rotation.y = heading;
+
+  // wheel spin + steer
+  const wheelSpin = velocity * dt * 6;
+  wheels.forEach((w,i)=>{
+    w.rotation.x -= wheelSpin;
+    if(i<2){ // front wheels steer
+      w.rotation.y = steerAngle;
+    }
+  });
+
+  // clamp to track-ish area
+  if(car.position.x > 18) car.position.x = 18;
+  if(car.position.x < -18) car.position.x = -18;
+
+  // HUD
+  const speedKmh = Math.round(velocity * 3.6);
+  speedTxt.textContent = isNaN(speedKmh) ? 0 : speedKmh;
+}
+
+function updateCamera(dt){
+  const target = new THREE.Vector3();
+  target.copy(car.position);
+  target.y += 1.2;
+
+  const backDist = 8;
+  const height = 4;
+
+  const camTarget = new THREE.Vector3(
+    car.position.x - Math.sin(heading)*backDist,
+    car.position.y + height,
+    car.position.z - Math.cos(heading)*backDist
+  );
+
+  // smooth follow
+  camera.position.lerp(camTarget, 6*dt);
+  controls.target.lerp(target, 8*dt);
+  controls.update();
+}
+</script>
+</body>
+</html>

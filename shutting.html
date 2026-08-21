@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <link rel="icon" href="favicon.png" type="image/x-icon">
+  <title>Sink OS Shutdown</title>
+  <style>
+    body {
+      margin: 0;
+      background-color: #0e0e2c;
+      color: #ffffff;
+      font-family: 'Segoe UI', sans-serif;
+      overflow: hidden;
+    }
+
+    #shutdownMessage {
+      position: absolute;
+      top: 40%;
+      width: 100%;
+      text-align: center;
+      font-size: 2em;
+      opacity: 0;
+      animation: fadeIn 3s forwards 1s;
+    }
+
+    #goodbyeMessage {
+      position: absolute;
+      bottom: 10%;
+      width: 100%;
+      text-align: center;
+      font-size: 2em;
+      opacity: 0;
+      animation: fadeInGoodbye 3s forwards;
+      animation-delay: 4s;
+    }
+
+    .ripple {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 20px;
+      height: 20px;
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+      animation: rippleEffect 4s ease-out forwards;
+    }
+
+    @keyframes fadeIn {
+      to { opacity: 1; }
+    }
+
+    @keyframes fadeInGoodbye {
+      to { opacity: 1; }
+    }
+
+    @keyframes rippleEffect {
+      0% {
+        width: 20px;
+        height: 20px;
+        opacity: 0.5;
+      }
+      100% {
+        width: 100vw;
+        height: 100vw;
+        opacity: 0;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="shutdownMessage">Shutting Down</div>
+  <div id="goodbyeMessage">Goodbye</div>
+  <audio id="shutdownSound" src="Recording 2025-07-25 195909 (audio-extractor.net).mp3" preload="auto"></audio>
+
+  <script>
+    window.onload = () => {
+      const audio = document.getElementById("shutdownSound");
+      audio.play();
+
+      // Trigger ripple animation 3 times
+      for (let i = 0; i < 3; i++) {
+        setTimeout(() => {
+          const ripple = document.createElement("div");
+          ripple.classList.add("ripple");
+          document.body.appendChild(ripple);
+        }, i * 1500); // 1.5s between each ripple
+      }
+
+      // Redirect after audio finishes
+      audio.onended = () => {
+        window.location.href = "shutdown.html";
+      };
+    };
+  </script>
+</body>
+</html>

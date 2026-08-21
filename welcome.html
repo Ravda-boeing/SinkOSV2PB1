@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Sink OS V2 — Intro</title>
+<style>
+  :root{
+    --amber: #FFB020;
+    --tts-gray: #c9c9c9;
+    --notts-gray: #6b6b6b;
+    --void: #050507;
+  }
+  html,body{
+    margin:0; padding:0; width:100%; height:100%;
+    background: var(--void);
+    overflow:hidden;
+    font-family:'JetBrains Mono','Courier New',monospace;
+  }
+
+  /* ---------- Start overlay (needed to unlock audio + speech) ---------- */
+  #startOverlay{
+    position:fixed; inset:0; z-index:999;
+    background:var(--void);
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:22px;
+  }
+  #startOverlay h1{
+    color:var(--amber);
+    letter-spacing:0.35em;
+    font-weight:400;
+    font-size:14px;
+    text-transform:uppercase;
+    margin:0;
+    opacity:0.85;
+  }
+  #startBtn{
+    background:transparent;
+    border:1px solid var(--amber);
+    color:var(--amber);
+    padding:14px 38px;
+    font-family:inherit;
+    letter-spacing:0.2em;
+    font-size:13px;
+    text-transform:uppercase;
+    cursor:pointer;
+    transition:all .25s ease;
+  }
+  #startBtn:hover{ background:var(--amber); color:#000; }
+
+  /* ---------- Scene ---------- */
+  #stage{
+    position:fixed; inset:0;
+    perspective: 900px;
+    perspective-origin: 50% 50%;
+  }
+  #camera{
+    position:absolute; inset:0;
+    transform-style: preserve-3d;
+    transform: rotateX(0deg);
+    transition: none;
+  }
+  #skyWash{
+    position:absolute; inset:0;
+    background: radial-gradient(ellipse at 50% 30%, #1a2440 0%, #050507 70%);
+    opacity: 1;
+    transition: background 3s ease, opacity 3s ease;
+  }
+  #skyWash.sky{
+    background: linear-gradient(180deg, #dfe9f5 0%, #a9c6e8 40%, #6f9fce 100%);
+  }
+
+  #shapeWrap{
+    position:absolute; top:50%; left:50%;
+    width:0; height:0;
+    transform-style: preserve-3d;
+    transform: translateZ(-9000px) rotateX(0deg) rotateY(0deg);
+  }
+  .facet{
+    position:absolute;
+    width:260px; height:260px;
+    margin:-130px 0 0 -130px;
+    background: linear-gradient(135deg, rgba(255,176,32,0.22), rgba(255,176,32,0.06));
+    border: 2px solid rgba(255,176,32,0.85);
+    box-shadow: 0 0 14px rgba(255,176,32,0.25);
+  }
+  .facet:nth-child(1){ transform: rotateY(0deg) translateZ(130px); }
+  .facet:nth-child(2){ transform: rotateY(90deg) translateZ(130px); }
+  .facet:nth-child(3){ transform: rotateY(180deg) translateZ(130px); }
+  .facet:nth-child(4){ transform: rotateY(270deg) translateZ(130px); }
+  .facet:nth-child(5){ transform: rotateX(90deg) translateZ(130px); }
+  .facet:nth-child(6){ transform: rotateX(270deg) translateZ(130px); }
+
+  /* blue blob revealed once the camera finishes turning to the sky */
+  #skyBlob{
+    position:absolute; top:50%; left:50%;
+    width:900px; height:900px;
+    margin:-450px 0 0 -450px;
+    border-radius:50%;
+    background: radial-gradient(circle, rgba(120,180,255,0.55) 0%, rgba(120,180,255,0.18) 45%, rgba(120,180,255,0) 72%);
+    opacity:0;
+    transition: opacity 2.5s ease;
+  }
+  #skyBlob.visible{ opacity:1; }
+
+  /* ---------- Text layer ---------- */
+  #textLayer{
+    position:fixed; inset:0;
+    display:flex; align-items:center; justify-content:center;
+    text-align:center;
+    pointer-events:none;
+    padding: 0 8vw;
+    box-sizing:border-box;
+  }
+  .cue{
+    position:absolute;
+    max-width: 900px;
+    opacity:0;
+    transition: opacity 0.6s ease;
+    font-size: clamp(20px, 3.2vw, 34px);
+    line-height:1.5;
+  }
+  .cue.tts{
+    color: var(--tts-gray);
+    font-style: normal;
+    font-weight:500;
+    text-transform:none;
+    text-shadow: 0 0 18px rgba(255,255,255,0.08);
+  }
+  .cue.notts{
+    color: var(--notts-gray);
+    font-style: italic;
+    font-weight:400;
+  }
+  .cue.visible{ opacity:1; }
+
+  /* logo */
+  #logo{
+    position:absolute;
+    opacity:0;
+    transition: opacity 1s ease;
+    font-size: clamp(30px, 5vw, 52px);
+    letter-spacing: 0.25em;
+    color:#111;
+    font-weight:700;
+  }
+  #logo.visible{ opacity:1; }
+  #logo small{
+    display:block;
+    margin-top:10px;
+    font-size:0.28em;
+    letter-spacing:0.4em;
+    color:#333;
+    font-weight:400;
+  }
+
+  #skipHint{
+    position:fixed; bottom:18px; right:22px;
+    color:rgba(255,255,255,0.25);
+    font-size:11px; letter-spacing:0.15em;
+    z-index:5;
+  }
+</style>
+</head>
+<body>
+
+<div id="startOverlay">
+  <h1>Sink OS V2 — Intro Sequence</h1>
+  <button id="startBtn">▶ Begin</button>
+</div>
+
+<div id="stage">
+  <div id="camera">
+    <div id="skyWash"></div>
+    <div id="skyBlob"></div>
+    <div id="shapeWrap">
+      <div class="facet"></div>
+      <div class="facet"></div>
+      <div class="facet"></div>
+      <div class="facet"></div>
+      <div class="facet"></div>
+      <div class="facet"></div>
+    </div>
+  </div>
+</div>
+
+<div id="textLayer"></div>
+<div id="logo">SINK OS<small>V2</small></div>
+<div id="skipHint">SinkIntro.mp4a</div>
+
+<audio id="bgm" preload="auto">
+  <source src="SinkIntro.m4a">
+</audio>
+
+<script>
+(function(){
+
+  // ---- Cue data, all times in seconds, straight from spec ----
+  const ttsCues = [
+    [9.48, 13.87, "Welcome to the newest version of Sink OS"],
+    [13.87, 18.34, "After last year's launch, we felt we could've done more"],
+    [18.34, 22.70, "We also revamped many of our apps, including writer, settings, file explorer, and more!"],
+    [22.70, 27.12, "We made the UI more cleaner, so its more appealing for the eyes when you have to use it for a while"],
+    [27.12, 31.22, "Now, you can create accounts and log into Sink OS by using email, google or Github"],
+    [31.31, 35.45, "You can save your work to your account, and access it on other devices by signing in"],
+    [35.45, 39.71, "There's more themes to match your vibe, go check them out!"],
+    [39.71, 43.80, "With added camera support, you can take photos from Sink OS as well"],
+    [43.80, 47.82, "You can now call and text your friends from Sink OS as well, keeping you guys interconnected in a growing world"],
+    [47.82, 51.89, "And with our AI assistant, NEXUS, you can get more done, feel more productive, and be more efficient"],
+    [51.89, 55.64, "The new version of Sink OS has arrived"],
+    [55.64, 58.86, "and we welcome you to it"]
+  ];
+
+  const nottsCues = [
+    [61.94, 64.27, "The new way to compute"],
+    [64.27, 66.66, "Designed alongside KORVEX"],
+    [66.66, 68.88, "Sink OS build number 202610201435"],
+    [68.88, 71.10, "Built with HTML, CSS, JavaScript and TypeScript"],
+    [71.10, 73.23, "COPPA, CCPA/CPRA, GDPR and the Australian Privacy Act 1988 + APPs compliant"],
+    [73.23, 75.62, "Based off of the reliable platform that supported Sink OS V1"]
+  ];
+
+  const LOGO_IN = 76.50, LOGO_OUT = 82.24;
+  const TTS_START = 9.48, TTS_END = 58.86;
+  const CAMERA_TURN_START = 58.86, CAMERA_TURN_END = 61.94;
+
+  const textLayer = document.getElementById('textLayer');
+  const allCues = [];
+
+  function buildCue(start, end, text, cls){
+    const el = document.createElement('div');
+    el.className = 'cue ' + cls;
+    el.textContent = text;
+    textLayer.appendChild(el);
+    allCues.push({start, end, el, spoken:false, text});
+  }
+
+  ttsCues.forEach(c => buildCue(c[0], c[1], c[2], 'tts'));
+  nottsCues.forEach(c => buildCue(c[0], c[1], c[2], 'notts'));
+
+  const logoEl = document.getElementById('logo');
+  const camera = document.getElementById('camera');
+  const shapeWrap = document.getElementById('shapeWrap');
+  const skyWash = document.getElementById('skyWash');
+  const skyBlob = document.getElementById('skyBlob');
+  const bgm = document.getElementById('bgm');
+
+  const FADE = 0.55; // seconds of fade in/out relative to entry/exit
+
+  function tick(elapsed){
+    // ---- text cues: fade in/out around their windows ----
+    allCues.forEach(c => {
+      let opacity = 0;
+      if (elapsed >= c.start - FADE && elapsed <= c.end + FADE){
+        if (elapsed < c.start){
+          opacity = (elapsed - (c.start - FADE)) / FADE;
+        } else if (elapsed > c.end){
+          opacity = 1 - (elapsed - c.end) / FADE;
+        } else {
+          opacity = 1;
+        }
+      }
+      opacity = Math.max(0, Math.min(1, opacity));
+      c.el.style.opacity = opacity;
+
+      // fire TTS once, right as its window opens
+      if (!c.spoken && elapsed >= c.start && c.el.classList.contains('tts')){
+        c.spoken = true;
+        speak(c.text);
+      }
+    });
+
+    // ---- the hexahedron spins continuously the whole time, independent of zoom ----
+    const spinY = elapsed * 24; // deg/sec
+    const spinX = elapsed * 15; // deg/sec
+
+    // ---- camera dolly toward the shape during the TTS block ----
+    // Exponential (ratio-based) interpolation so it grows at a steady, visible
+    // rate the whole time instead of sitting as an invisible speck until the end.
+    const Z_FAR = 5200;   // starting distance — still clearly on-screen
+    const Z_NEAR = 260;   // final, close distance
+    let z;
+    if (elapsed <= TTS_START){
+      z = -Z_FAR;
+    } else if (elapsed < TTS_END){
+      const p = (elapsed - TTS_START) / (TTS_END - TTS_START); // 0..1
+      z = -(Z_FAR * Math.pow(Z_NEAR / Z_FAR, p));
+    } else {
+      z = -Z_NEAR;
+    }
+    shapeWrap.style.transform = `translateZ(${z}px) rotateY(${spinY}deg) rotateX(${spinX}deg)`;
+
+    // ---- camera rotates 90deg to face "sky" once TTS finishes ----
+    if (elapsed <= CAMERA_TURN_START){
+      camera.style.transform = 'rotateX(0deg)';
+      skyWash.classList.remove('sky');
+      skyBlob.classList.remove('visible');
+    } else if (elapsed < CAMERA_TURN_END){
+      const p = (elapsed - CAMERA_TURN_START) / (CAMERA_TURN_END - CAMERA_TURN_START);
+      camera.style.transform = `rotateX(${p * -90}deg)`;
+      if (p > 0.5){
+        skyWash.classList.add('sky');
+        skyBlob.classList.add('visible');
+      }
+    } else {
+      camera.style.transform = 'rotateX(-90deg)';
+      skyWash.classList.add('sky');
+      skyBlob.classList.add('visible');
+    }
+
+    // ---- logo ----
+    if (elapsed >= LOGO_IN && elapsed <= LOGO_OUT){
+      logoEl.classList.add('visible');
+    } else {
+      logoEl.classList.remove('visible');
+    }
+  }
+
+  function speak(text){
+    if (!('speechSynthesis' in window)) return;
+    try{
+      window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      u.rate = 1.0;
+      u.pitch = 1.0;
+      window.speechSynthesis.speak(u);
+    }catch(e){ console.warn('TTS failed', e); }
+  }
+
+  let rafId = null;
+  function loop(startTime){
+    function frame(now){
+      const elapsed = (now - startTime) / 1000;
+      tick(elapsed);
+      if (elapsed < LOGO_OUT + 2){
+        rafId = requestAnimationFrame(frame);
+      }
+    }
+    rafId = requestAnimationFrame(frame);
+  }
+
+  document.getElementById('startBtn').addEventListener('click', () => {
+    document.getElementById('startOverlay').style.display = 'none';
+
+    bgm.play().catch(err => {
+      console.warn('SinkIntro.mp4a could not be played automatically — place the file next to this HTML file to hear it.', err);
+    });
+
+    if ('speechSynthesis' in window){
+      window.speechSynthesis.getVoices();
+    }
+
+    loop(performance.now());
+  });
+
+})();
+</script>
+</body>
+</html>

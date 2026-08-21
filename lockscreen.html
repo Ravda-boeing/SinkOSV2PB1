@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sink OS — Locked</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600&display=swap');
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      height: 100%;
+      font-family: 'Inter', sans-serif;
+      overflow: hidden;
+    }
+
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(160deg,
+        #b8cef8 0%, #c5d8fb 20%, #d8e8ff 40%,
+        #cfe0ff 60%, #b9ccf5 80%, #a8bef0 100%);
+      position: relative;
+    }
+
+    /* ── Animated background orbs ── */
+    .orb {
+      position: fixed;
+      border-radius: 50%;
+      filter: blur(60px);
+      opacity: 0.55;
+      animation: drift 12s ease-in-out infinite alternate;
+      pointer-events: none;
+    }
+    .orb1 { width: 520px; height: 520px; background: radial-gradient(circle, #93b8f8, transparent 70%); top: -120px; left: -80px; animation-delay: 0s; }
+    .orb2 { width: 440px; height: 440px; background: radial-gradient(circle, #b8d4ff, transparent 70%); bottom: -80px; right: -60px; animation-delay: -5s; }
+    .orb3 { width: 320px; height: 320px; background: radial-gradient(circle, #d0e4ff, transparent 70%); top: 40%; left: 58%; animation-delay: -3s; }
+    @keyframes drift {
+      0%   { transform: translate(0, 0) scale(1); }
+      100% { transform: translate(30px, 20px) scale(1.08); }
+    }
+
+    /* ── Time & Date ── */
+    .time-block {
+      position: fixed;
+      top: 12%;
+      left: 50%;
+      transform: translateX(-50%);
+      text-align: center;
+      z-index: 3;
+      user-select: none;
+      pointer-events: none;
+    }
+    .time-display {
+      font-size: clamp(56px, 8vw, 88px);
+      font-weight: 200;
+      color: rgba(15, 35, 90, 0.82);
+      letter-spacing: -0.03em;
+      line-height: 1;
+      text-shadow: 0 2px 20px rgba(80, 120, 200, 0.15);
+    }
+    .date-display {
+      font-size: 16px;
+      font-weight: 300;
+      color: rgba(15, 35, 90, 0.5);
+      letter-spacing: 0.04em;
+      margin-top: 8px;
+    }
+
+    /* ── Liquid glass card ── */
+    .glass-card {
+      position: relative;
+      z-index: 2;
+      width: 340px;
+      border-radius: 28px;
+      padding: 36px 32px 32px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin-top: 160px;
+
+      background: linear-gradient(145deg,
+        rgba(255,255,255,0.62) 0%,
+        rgba(255,255,255,0.38) 50%,
+        rgba(255,255,255,0.52) 100%);
+      backdrop-filter: blur(32px) saturate(1.6);
+      -webkit-backdrop-filter: blur(32px) saturate(1.6);
+
+      border: 1px solid rgba(255,255,255,0.75);
+      box-shadow:
+        0 2px 0 rgba(255,255,255,0.8) inset,
+        0 -1px 0 rgba(255,255,255,0.3) inset,
+        1px 0 0 rgba(255,255,255,0.5) inset,
+        0 24px 48px rgba(100,140,220,0.18),
+        0 8px 20px rgba(80,120,200,0.12);
+    }
+
+    .glass-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 16px; right: 16px;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.9), transparent);
+      border-radius: 1px;
+    }
+
+    /* ── Avatar ── */
+    .avatar {
+      width: 64px; height: 64px;
+      border-radius: 50%;
+      background: linear-gradient(145deg, rgba(255,255,255,0.7), rgba(210,228,255,0.6));
+      border: 1.5px solid rgba(255,255,255,0.85);
+      box-shadow: 0 4px 16px rgba(100,140,220,0.2), 0 1px 0 rgba(255,255,255,0.9) inset;
+      display: flex; align-items: center; justify-content: center;
+      margin-bottom: 14px;
+    }
+    .avatar svg { color: #3a6fc4; opacity: 0.65; }
+
+    .ls-username {
+      font-size: 17px;
+      font-weight: 500;
+      color: #1c2d54;
+      letter-spacing: -0.01em;
+      margin-bottom: 4px;
+    }
+    .ls-hint {
+      font-size: 12px;
+      color: rgba(40, 70, 140, 0.5);
+      margin-bottom: 24px;
+    }
+
+    /* ── Password input ── */
+    .pw-wrap { position: relative; width: 100%; margin-bottom: 10px; }
+    .pw-input {
+      width: 100%;
+      padding: 12px 44px 12px 16px;
+      border-radius: 14px;
+      font-family: 'Inter', sans-serif;
+      font-size: 14px;
+      color: #1c2d54;
+      outline: none;
+      letter-spacing: 0.05em;
+      background: linear-gradient(145deg, rgba(255,255,255,0.55), rgba(255,255,255,0.35));
+      border: 1px solid rgba(255,255,255,0.8);
+      box-shadow: 0 1px 0 rgba(255,255,255,0.7) inset, 0 4px 12px rgba(100,140,220,0.1);
+      transition: all 0.2s ease;
+    }
+    .pw-input:focus {
+      background: linear-gradient(145deg, rgba(255,255,255,0.72), rgba(255,255,255,0.52));
+      border-color: rgba(255,255,255,0.95);
+      box-shadow: 0 1px 0 rgba(255,255,255,0.9) inset, 0 0 0 3px rgba(100,150,240,0.18), 0 4px 12px rgba(100,140,220,0.15);
+    }
+    .pw-input::placeholder { color: rgba(40,70,140,0.32); letter-spacing: normal; }
+    .eye-btn {
+      position: absolute; right: 14px; top: 50%; transform: translateY(-50%);
+      background: none; border: none; cursor: pointer; padding: 0;
+      color: rgba(40,70,140,0.38); transition: color 0.15s;
+      display: flex; align-items: center;
+    }
+    .eye-btn:hover { color: rgba(40,70,140,0.7); }
+
+    .err-msg {
+      font-size: 11px;
+      color: rgba(170, 30, 30, 0.85);
+      min-height: 18px;
+      text-align: center;
+      margin-bottom: 8px;
+    }
+
+    /* ── Unlock button ── */
+    .unlock-btn {
+      width: 100%;
+      padding: 13px;
+      border-radius: 14px;
+      border: none;
+      cursor: pointer;
+      font-family: 'Inter', sans-serif;
+      font-size: 14px;
+      font-weight: 500;
+      letter-spacing: 0.01em;
+      color: #fff;
+      margin-bottom: 18px;
+      background: linear-gradient(145deg, rgba(70,120,220,0.85), rgba(50,100,200,0.75));
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      border: 1px solid rgba(120,170,255,0.5);
+      box-shadow: 0 1px 0 rgba(180,210,255,0.5) inset, 0 6px 20px rgba(60,100,200,0.3);
+      transition: all 0.18s ease;
+    }
+    .unlock-btn:hover {
+      background: linear-gradient(145deg, rgba(80,130,230,0.9), rgba(60,110,210,0.82));
+      box-shadow: 0 1px 0 rgba(180,210,255,0.6) inset, 0 8px 24px rgba(60,100,200,0.38);
+      transform: translateY(-1px);
+    }
+    .unlock-btn:active {
+      transform: translateY(0);
+      box-shadow: 0 1px 0 rgba(180,210,255,0.4) inset, 0 4px 12px rgba(60,100,200,0.25);
+    }
+    .unlock-btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+
+    /* ── Divider ── */
+    .card-divider {
+      width: 100%;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.6), transparent);
+      margin-bottom: 16px;
+    }
+
+    /* ── Switch account ── */
+    .switch-link {
+      font-size: 12px;
+      color: rgba(40, 70, 140, 0.45);
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-family: 'Inter', sans-serif;
+      transition: color 0.15s;
+    }
+    .switch-link:hover { color: rgba(40, 70, 140, 0.75); }
+
+    /* ── Shake animation ── */
+    @keyframes shake {
+      0%,100% { transform: translateX(0); }
+      15%  { transform: translateX(-7px); }
+      30%  { transform: translateX(7px); }
+      45%  { transform: translateX(-5px); }
+      60%  { transform: translateX(5px); }
+      75%  { transform: translateX(-2px); }
+      90%  { transform: translateX(2px); }
+    }
+    .shake { animation: shake 0.45s ease; }
+  </style>
+</head>
+<body>
+
+  <div class="orb orb1"></div>
+  <div class="orb orb2"></div>
+  <div class="orb orb3"></div>
+
+  <div class="time-block">
+    <div class="time-display" id="ls-time">12:00 AM</div>
+    <div class="date-display" id="ls-date">Monday, 1 January 2025</div>
+  </div>
+
+  <div class="glass-card" id="glass-card">
+    <div class="avatar">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+        <circle cx="12" cy="7" r="4"/>
+      </svg>
+    </div>
+
+    <div class="ls-username" id="ls-username">user</div>
+    <div class="ls-hint">Enter your OS password</div>
+
+    <div class="pw-wrap">
+      <input class="pw-input" type="password" id="ls-pw"
+             placeholder="Password" autocomplete="off"
+             onkeydown="if(event.key==='Enter') tryUnlock()">
+      <button class="eye-btn" id="eye-btn" onclick="toggleEye()" aria-label="Show password">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+          <circle cx="12" cy="12" r="3"/>
+        </svg>
+      </button>
+    </div>
+
+    <div class="err-msg" id="ls-err"></div>
+
+    <button class="unlock-btn" id="unlock-btn" onclick="tryUnlock()">Unlock</button>
+
+    <div class="card-divider"></div>
+
+    <button class="switch-link" onclick="switchAccount()">Switch account</button>
+  </div>
+
+<script type="module">
+  import { supabase } from './supabase.js';
+
+  const DAYS   = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const pad = n => String(n).padStart(2, '0');
+
+  function tick() {
+    const now  = new Date();
+    let h      = now.getHours();
+    const m    = now.getMinutes();
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    h = h % 12 || 12;
+    document.getElementById('ls-time').textContent = `${h}:${pad(m)} ${ampm}`;
+    document.getElementById('ls-date').textContent =
+      `${DAYS[now.getDay()]}, ${now.getDate()} ${MONTHS[now.getMonth()]} ${now.getFullYear()}`;
+  }
+  tick();
+  setInterval(tick, 10000);
+
+  async function loadUsername() {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) { window.location.href = './login.html'; return; }
+    const { data } = await supabase
+      .from('profiles')
+      .select('username')
+      .eq('id', session.user.id)
+      .single();
+    if (data) document.getElementById('ls-username').textContent = data.username;
+  }
+  loadUsername();
+
+  const EYE_OPEN = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
+  const EYE_SHUT = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`;
+
+  window.toggleEye = function() {
+    const inp = document.getElementById('ls-pw');
+    const btn = document.getElementById('eye-btn');
+    if (inp.type === 'password') { inp.type = 'text';     btn.innerHTML = EYE_SHUT; }
+    else                         { inp.type = 'password'; btn.innerHTML = EYE_OPEN; }
+  };
+
+  function shake() {
+    const card = document.getElementById('glass-card');
+    card.classList.remove('shake');
+    void card.offsetWidth;
+    card.classList.add('shake');
+  }
+
+  async function hashPassword(pw) {
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pw));
+    return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  window.tryUnlock = async function() {
+    const pw  = document.getElementById('ls-pw').value;
+    const err = document.getElementById('ls-err');
+    const btn = document.getElementById('unlock-btn');
+    err.textContent = '';
+
+    if (!pw) { err.textContent = 'Enter your password.'; shake(); return; }
+
+    btn.textContent = 'Unlocking…';
+    btn.disabled    = true;
+
+    let storedHash = sessionStorage.getItem('os_pw_hash');
+    if (!storedHash) {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) { window.location.href = './login.html'; return; }
+      const { data } = await supabase
+        .from('profiles')
+        .select('os_password_hash')
+        .eq('id', session.user.id)
+        .single();
+      storedHash = data?.os_password_hash ?? null;
+      if (storedHash) sessionStorage.setItem('os_pw_hash', storedHash);
+    }
+
+    const inputHash = await hashPassword(pw);
+    if (inputHash === storedHash) {
+      const returnTo = sessionStorage.getItem('sinkos_return_to');
+      if (returnTo) {
+        sessionStorage.removeItem('sinkos_return_to');
+        window.location.href = returnTo;
+      } else {
+        window.location.href = './end.html';
+      }
+    } else {
+      err.textContent = 'Incorrect password. Try again.';
+      document.getElementById('ls-pw').value = '';
+      btn.textContent = 'Unlock';
+      btn.disabled    = false;
+      shake();
+    }
+  };
+
+  window.switchAccount = async function() {
+    sessionStorage.removeItem('os_pw_hash');
+    await supabase.auth.signOut();
+    window.location.href = './login.html';
+  };
+</script>
+
+</body>
+</html>

@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Sink OS Boot</title>
+  <link rel="icon" href="favicon.png" type="image/x-icon">
+
+  <style>
+    body {
+      margin: 0;
+      background-color: #fff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      overflow: hidden;
+      color: #000;
+      font-family: 'Segoe UI', sans-serif;
+    }
+
+    #boot-image, #boot-text, #config-bar, #config-label {
+      opacity: 0;
+      transition: opacity 2s ease;
+    }
+
+    #boot-image {
+      max-width: 80%;
+      height: auto;
+    }
+
+    h3 {
+      font-style: italic;
+      margin-top: 20px;
+    }
+
+    /* Config bar */
+    #config-bar {
+      width: 200px;
+      height: 10px;
+      background: #222;
+      border-radius: 5px;
+      overflow: hidden;
+      margin: 20px auto 0;
+      transition: opacity 1s ease;
+    }
+
+    #config-bar .block {
+      width: 40px;
+      height: 100%;
+      background: black;
+      border-radius: 5px;
+      animation: slide 1.2s linear infinite;
+    }
+
+    @keyframes slide {
+      0% { transform: translateX(-40px); }
+      100% { transform: translateX(200px); }
+    }
+
+    #config-label {
+      text-align: center;
+      margin-top: 10px;
+      color: black;
+      font-size: 14px;
+      transition: opacity 1s ease;
+    }
+  </style>
+</head>
+
+<body>
+
+  <audio id="startupSound" src="V2BETABOOTUP.MP3"></audio>
+
+  <img src="assets/a modern and minimal.png" alt="Sink OS Boot Image" id="boot-image" />
+  <h3 id="boot-text">Private testing 1 V2</h3>
+
+  <div id="config-bar">
+    <div class="block"></div>
+  </div>
+
+  <div id="config-label">Configuring beta OS</div>
+
+  <script type="module" src="dist/boot.js"></script>
+</body>
+</html>

@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Sink Settings</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="icon" href="favicon.png" type="image/x-icon">
+
+  <style>
+    :root {
+      --bg: #111;
+      --text: #0f0;
+      --accent: #0f0;
+      --card-bg: #000;
+      --border: #0f0;
+      --wallpaper: none;
+    }
+
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: var(--bg);
+      background-image: var(--wallpaper);
+      background-size: cover;
+      background-position: center;
+      background-attachment: fixed;
+      color: var(--text);
+      margin: 0;
+      padding: 0;
+      transition: 0.3s;
+    }
+
+    .settings-container {
+      display: flex;
+      min-height: 100vh;
+      backdrop-filter: blur(4px);
+    }
+
+    .settings-sidebar {
+      width: 250px;
+      background-color: var(--card-bg);
+      padding: 20px;
+      border-right: 2px solid var(--border);
+    }
+
+    .settings-sidebar h2 {
+      margin-bottom: 20px;
+    }
+
+    .settings-sidebar ul {
+      list-style: none;
+      padding: 0;
+    }
+
+    .settings-sidebar li {
+      margin: 10px 0;
+      cursor: pointer;
+      color: var(--accent);
+    }
+
+    .settings-sidebar li:hover {
+      text-decoration: underline;
+    }
+
+    .settings-main {
+      flex: 1;
+      padding: 40px;
+    }
+
+    h1, h2 {
+      color: var(--accent);
+    }
+
+    .subtitle {
+      margin-bottom: 30px;
+      font-style: italic;
+    }
+
+    .section {
+      display: none;
+    }
+
+    .section.active {
+      display: block;
+    }
+
+    .theme-buttons button,
+    .wallpaper-buttons button {
+      padding: 10px 16px;
+      margin-right: 10px;
+      background-color: var(--accent);
+      color: var(--bg);
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: bold;
+    }
+
+    .theme-buttons button:hover,
+    .wallpaper-buttons button:hover {
+      opacity: 0.8;
+    }
+
+    .system-relic {
+      margin-top: 30px;
+      padding: 20px;
+      border: 2px solid var(--border);
+      background-color: var(--card-bg);
+      border-radius: 8px;
+    }
+
+    .system-relic h2 {
+      margin-top: 0;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="settings-container">
+
+    <!-- Sidebar -->
+    <div class="settings-sidebar">
+      <h2>Settings</h2>
+      <ul>
+        <li onclick="showSection('system')">System Settings</li>
+        <li onclick="showSection('personalisation')">Personalisation</li>
+        <li onclick="showSection('updates')">Updates</li>
+        <li onclick="showSection('about')">About</li>
+      </ul>
+    </div>
+
+    <!-- Main content -->
+    <div class="settings-main">
+
+      <!-- SYSTEM SETTINGS -->
+      <div id="system" class="section active">
+        <h1>System Settings</h1>
+        <p class="subtitle">System information and configuration</p>
+      </div>
+
+      <!-- PERSONALISATION -->
+      <div id="personalisation" class="section">
+        <h1>Personalisation</h1>
+        <p class="subtitle">Customise the look and feel of Sink OS</p>
+
+        <h2>Theme Mode</h2>
+        <div class="theme-buttons">
+          <button onclick="setDarkMode()">Dark Mode</button>
+          <button onclick="setLightMode()">Light Mode</button>
+          <button onclick="setSinkDefault()">Sink Default</button>
+        </div>
+
+        <br><br>
+
+        <h2>Wallpaper</h2>
+        <p class="subtitle">Choose a background</p>
+
+        <!-- Preloaded wallpapers -->
+        <div class="wallpaper-grid" style="
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+          gap: 15px;
+          max-width: 600px;
+        ">
+          <img src="assets/Bloom.png" onclick="setWallpaper('url(wall1.jpg)')" style="width:100%; border-radius:6px; cursor:pointer;">
+          <img src="assets/Bloom2.png" onclick="setWallpaper('url(wall2.jpg)')" style="width:100%; border-radius:6px; cursor:pointer;">
+          <img src="assets/Clouds.png" onclick="setWallpaper('url(wall3.jpg)')" style="width:100%; border-radius:6px; cursor:pointer;">
+          <img src="assets/pexels-alexmaksin55-9048280.jpg" onclick="setWallpaper('url(wall4.jpg)')" style="width:100%; border-radius:6px; cursor:pointer;">
+        </div>
+
+        <br><br>
+
+        <h2>Live Wallpaper</h2>
+        <div class="wallpaper-buttons">
+          <button onclick="setWallpaper('none')">None</button>
+          <button onclick="setWallpaper('url(live1.gif)')">Aurora Flow</button>
+          <button onclick="setWallpaper('url(live2.gif)')">Blue Waves</button>
+          <button onclick="setWallpaper('url(live3.gif)')">Matrix Rain</button>
+        </div>
+
+        <br><br>
+
+        <h2>Custom Wallpaper</h2>
+        <div class="wallpaper-buttons">
+          <button onclick="chooseCustomWallpaper()">Choose from device…</button>
+        </div>
+
+        <input type="file" id="wallpaperPicker" accept="image/*" style="display:none;">
+      </div>
+
+      <!-- UPDATES -->
+      <div id="updates" class="section">
+        <h1>Updates</h1>
+        <h2>You are up to date</h2>
+      </div>
+
+      <!-- ABOUT -->
+      <div id="about" class="section">
+        <h1>About</h1>
+        <h3>About Sink OS</h3>
+        <p>Sink OS Build version: Public Beta 1</p>
+        <p>Sink OS Build date: 21 August 2026</p>
+        <p>Sink OS build number: 20260821</p>
+        <p>Sink OS version support end date: September 15 2026</p>
+        <p>Sink OS Build Codename: Pubic Beta 1 V2</p>
+
+        <div class="system-relic">
+          <h2>🧬 Your PC Specs</h2>
+          <p><strong>Platform:</strong> <span id="platform"></span></p>
+          <p><strong>Estimated RAM:</strong> <span id="memory"></span> GB</p>
+          <p><strong>Logical CPU Cores:</strong> <span id="cores"></span></p>
+          <p><strong>Screen Resolution:</strong> <span id="resolution"></span></p>
+        </div>
+
+        <p style="font-size: 11px; margin-top: 10px;">
+          Sink OS identified your platform, RAM, CPU cores, and screen resolution using JavaScript.
+          These values are reported directly by your browser—accuracy depends on browser support.
+        </p>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    function showSection(id) {
+      document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+      document.getElementById(id).classList.add('active');
+    }
+
+    // THEME SWITCHING
+    function setDarkMode() {
+      document.documentElement.style.setProperty('--bg', '#000');
+      document.documentElement.style.setProperty('--text', '#0f0');
+      document.documentElement.style.setProperty('--accent', '#0f0');
+      document.documentElement.style.setProperty('--card-bg', '#000');
+      document.documentElement.style.setProperty('--border', '#0f0');
+    }
+
+    function setLightMode() {
+      document.documentElement.style.setProperty('--bg', '#fff');
+      document.documentElement.style.setProperty('--text', '#c00');
+      document.documentElement.style.setProperty('--accent', '#c00');
+      document.documentElement.style.setProperty('--card-bg', '#fff');
+      document.documentElement.style.setProperty('--border', '#c00');
+    }
+
+    function setSinkDefault() {
+      document.documentElement.style.setProperty('--bg', '#0a0f2b');
+      document.documentElement.style.setProperty('--text', '#4f8cff');
+      document.documentElement.style.setProperty('--accent', '#4f8cff');
+      document.documentElement.style.setProperty('--card-bg', '#0d1438');
+      document.documentElement.style.setProperty('--border', '#4f8cff');
+    }
+
+    // WALLPAPER
+    function setWallpaper(wp) {
+      document.documentElement.style.setProperty('--wallpaper', wp);
+      localStorage.setItem("sinkOS_wallpaper", wp);
+    }
+
+    // CUSTOM WALLPAPER PICKER
+    function chooseCustomWallpaper() {
+      document.getElementById("wallpaperPicker").click();
+    }
+
+    document.getElementById("wallpaperPicker").addEventListener("change", function() {
+      const file = this.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        const base64 = e.target.result;
+        const formatted = `url(${base64})`;
+
+        localStorage.setItem("sinkOS_wallpaper", formatted);
+        document.documentElement.style.setProperty('--wallpaper', formatted);
+      };
+
+      reader.readAsDataURL(file);
+    });
+
+    // SYSTEM INFO
+    document.getElementById("platform").textContent = navigator.platform || "Unknown";
+    document.getElementById("memory").textContent = navigator.deviceMemory || "Unavailable";
+    document.getElementById("cores").textContent = navigator.hardwareConcurrency || "Unavailable";
+    document.getElementById("resolution").textContent = `${screen.width} × ${screen.height}`;
+  </script>
+
+<!-- Taskbar -->
+<div class="taskbar" style="
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 50px;
+  background: rgba(17, 17, 17, 0.4);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  padding: 0 15px;
+  color: white;
+  z-index: 9999;
+">
+  <span>Sink OS V2</span>
+
+  <button style="margin-left: 20px; background: transparent; border: none; color: white; cursor: pointer; font-size: 16px;" onclick="window.location.href='writer.html'">✏️</button>
+  <button style="margin-left: 20px; background: transparent; border: none; color: white; cursor: pointer; font-size: 16px;" onclick="window.location.href='camera.html'">📷</button>
+  <button style="margin-left: 20px; background: transparent; border: none; color: white; cursor: pointer; font-size: 16px;" onclick="window.location.href='terminall.html'">🖥️</button>
+  <button style="margin-left: 20px; background: transparent; border: none; color: white; cursor: pointer; font-size: 16px;" onclick="window.location.href='settings.html'">⚙️</button>
+  <button style="margin-left: 20px; background: transparent; border: none; color: white; cursor: pointer; font-size: 16px;" onclick="window.location.href='code.html'">💻</button>
+  <button style="margin-left: 20px; background: transparent; border: none; color: white; cursor: pointer; font-size: 16px;" onclick="window.location.href='desktopv2.html'">🏠</button>
+</div>
+
+</body>
+</html>

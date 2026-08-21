@@ -1,0 +1,2190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sink Writer — Sink OS V2</title>
+  <link rel="icon" href="favicon.png" type="image/x-icon">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --accent: #3B6DF5;
+      --accent-hover: #2E58D8;
+      --accent-soft: #E8EEFF;
+      --danger: #E0475C;
+      --success: #2FAE6B;
+
+      --bg: #EDEEF2;
+      --surface: #ffffff;
+      --surface-soft: #F7F8FA;
+      --border: #DDE0E6;
+      --text: #1C1F26;
+      --muted: #80869A;
+
+      --titlebar-bg: #FFFFFF;
+      --toolbar-bg: #FFFFFF;
+      --ribbon-bg: #FCFCFD;
+      --status-bg: #FFFFFF;
+
+      --page-bg: #ffffff;
+      --page-text: #1C1F26;
+      --page-shadow: 0 1px 3px rgba(20,22,30,0.08), 0 10px 28px rgba(20,22,30,0.10);
+
+      --radius: 8px;
+    }
+
+    body[data-theme="pureblack"] {
+      --bg: #000000;
+      --surface: #121212;
+      --surface-soft: #161616;
+      --border: #262626;
+      --text: #F2F2F2;
+      --muted: #8C8C8C;
+
+      --titlebar-bg: #0B0B0B;
+      --toolbar-bg: #0F0F0F;
+      --ribbon-bg: #111111;
+      --status-bg: #0B0B0B;
+
+      --page-bg: #151515;
+      --page-text: #EDEDED;
+      --page-shadow: 0 1px 3px rgba(0,0,0,0.6), 0 12px 32px rgba(0,0,0,0.55);
+    }
+
+    body[data-theme="sinkdark"] {
+      --bg: #090D19;
+      --surface: #101627;
+      --surface-soft: #0D1322;
+      --border: #202B45;
+      --text: #DDE4FF;
+      --muted: #8590BD;
+
+      --titlebar-bg: #0D1322;
+      --toolbar-bg: #0D1322;
+      --ribbon-bg: #0C1120;
+      --status-bg: #0D1322;
+
+      --page-bg: #131B30;
+      --page-text: #E4E9FF;
+      --page-shadow: 0 1px 3px rgba(0,0,0,0.5), 0 14px 32px rgba(5,8,20,0.6);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+      transition: background 0.2s ease, color 0.2s ease;
+    }
+
+    button { font-family: inherit; }
+
+    /* ============ Title bar ============ */
+    .titlebar {
+      height: 44px;
+      flex-shrink: 0;
+      background: var(--titlebar-bg);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 12px;
+      border-bottom: 1px solid var(--border);
+      user-select: none;
+    }
+
+    .titlebar-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .titlebar-mark {
+      width: 26px;
+      height: 26px;
+      border-radius: 7px;
+      background: linear-gradient(135deg, var(--accent), #6D8CFF);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-weight: 700;
+      font-size: 13px;
+      flex-shrink: 0;
+    }
+
+    .titlebar-app {
+      font-weight: 600;
+      font-size: 13px;
+      color: var(--muted);
+      flex-shrink: 0;
+    }
+
+    .titlebar-doc {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text);
+      padding: 3px 8px;
+      border-radius: 5px;
+      outline: none;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 320px;
+      cursor: text;
+    }
+
+    .titlebar-doc:hover, .titlebar-doc:focus {
+      background: var(--surface-soft);
+    }
+
+    .save-status {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11.5px;
+      color: var(--muted);
+      flex-shrink: 0;
+      padding-left: 4px;
+    }
+
+    .save-status .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--muted);
+    }
+
+    .save-status.saved .dot { background: var(--success); }
+    .save-status.saving .dot { background: var(--accent); animation: pulse 1s infinite ease-in-out; }
+    .save-status.unsaved .dot { background: var(--danger); }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.35; }
+    }
+
+    .titlebar-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .titlebar-user {
+      font-size: 11.5px;
+      color: var(--muted);
+      max-width: 160px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .titlebar-btn {
+      width: 26px;
+      height: 26px;
+      border-radius: 6px;
+      border: none;
+      background: transparent;
+      font-size: 12px;
+      cursor: pointer;
+      color: var(--muted);
+    }
+
+    .titlebar-btn:hover { background: var(--surface-soft); }
+    .titlebar-btn.close:hover { background: var(--danger); color: #fff; }
+
+    /* ============ Toolbar ============ */
+    .toolbar {
+      height: 44px;
+      flex-shrink: 0;
+      background: var(--toolbar-bg);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      padding: 0 10px;
+      gap: 6px;
+    }
+
+    .icon-btn {
+      border: none;
+      background: transparent;
+      cursor: pointer;
+      color: var(--text);
+      border-radius: 6px;
+      height: 30px;
+      min-width: 30px;
+      padding: 0 8px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      font-size: 13px;
+    }
+
+    .icon-btn:hover { background: var(--surface-soft); }
+    .icon-btn:disabled { opacity: 0.35; cursor: default; pointer-events: none; }
+    .icon-btn.active { background: var(--accent-soft); color: var(--accent); }
+
+    .toolbar-sep {
+      width: 1px;
+      align-self: stretch;
+      margin: 8px 2px;
+      background: var(--border);
+    }
+
+    .menu-button {
+      border: none;
+      background: transparent;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      padding: 5px 12px;
+      border-radius: 6px;
+      color: var(--text);
+    }
+
+    .menu-button:hover { background: var(--surface-soft); }
+
+    .menu-button.primary {
+      background: var(--accent);
+      color: #ffffff;
+    }
+
+    .menu-button.primary:hover { background: var(--accent-hover); }
+
+    .menu-button.ghost {
+      border: 1px solid var(--border);
+    }
+
+    .toolbar-spacer { flex: 1; }
+
+    .toolbar-hint {
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    /* File dropdown */
+    .file-menu { position: relative; }
+
+    .file-dropdown {
+      position: absolute;
+      top: 34px;
+      left: 0;
+      background: var(--surface);
+      border-radius: var(--radius);
+      box-shadow: var(--page-shadow);
+      border: 1px solid var(--border);
+      min-width: 200px;
+      padding: 6px;
+      display: none;
+      z-index: 40;
+    }
+
+    .file-dropdown.open { display: block; }
+
+    .file-item {
+      padding: 7px 10px;
+      font-size: 13px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      color: var(--text);
+      border-radius: 5px;
+    }
+
+    .file-item:hover { background: var(--surface-soft); }
+    .file-item .kbd { margin-left: auto; font-size: 10.5px; color: var(--muted); }
+    .file-item.divider { height: 1px; padding: 0; margin: 5px 4px; background: var(--border); pointer-events: none; }
+
+    /* ============ Ribbon ============ */
+    .ribbon-tabs {
+      display: flex;
+      gap: 4px;
+      padding: 6px 12px 0;
+      background: var(--ribbon-bg);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .ribbon-tab {
+      font-size: 12.5px;
+      font-weight: 500;
+      padding: 6px 12px;
+      cursor: pointer;
+      color: var(--muted);
+      border-radius: 6px 6px 0 0;
+    }
+
+    .ribbon-tab.active {
+      color: var(--accent);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-bottom: 1px solid var(--surface);
+      margin-bottom: -1px;
+    }
+
+    .ribbon {
+      height: 66px;
+      flex-shrink: 0;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      padding: 6px 14px;
+      gap: 18px;
+      font-size: 12.5px;
+      overflow-x: auto;
+    }
+
+    .ribbon-group {
+      border-right: 1px solid var(--border);
+      padding-right: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      flex-shrink: 0;
+    }
+
+    .ribbon-group:last-child { border-right: none; }
+
+    .ribbon-group-title {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      color: var(--muted);
+    }
+
+    .ribbon-row { display: flex; gap: 4px; align-items: center; flex-wrap: nowrap; }
+
+    .ribbon-select {
+      padding: 4px 6px;
+      font-size: 12.5px;
+      border-radius: 5px;
+      border: 1px solid var(--border);
+      background: var(--surface-soft);
+      color: var(--text);
+    }
+
+    .ribbon-btn {
+      border: 1px solid transparent;
+      background: transparent;
+      padding: 4px 6px;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 13px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 26px;
+      height: 26px;
+      color: var(--text);
+    }
+
+    .ribbon-btn:hover { background: var(--accent-soft); border-color: var(--accent); }
+    .ribbon-btn.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+    .ribbon-btn.text { width: auto; padding: 0 8px; gap: 5px; }
+
+    .color-input {
+      width: 30px;
+      height: 24px;
+      padding: 0;
+      border-radius: 5px;
+      border: 1px solid var(--border);
+      background: transparent;
+      cursor: pointer;
+    }
+
+    /* ============ Body layout: outline + editor ============ */
+    .app-body {
+      flex: 1;
+      display: flex;
+      min-height: 0;
+    }
+
+    .outline-panel {
+      width: 240px;
+      flex-shrink: 0;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: none;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .outline-panel.open { display: flex; }
+
+    .outline-header {
+      padding: 12px 14px;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      color: var(--muted);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .outline-list { overflow-y: auto; padding: 6px; flex: 1; }
+
+    .outline-item {
+      padding: 7px 10px;
+      font-size: 13px;
+      border-radius: 5px;
+      cursor: pointer;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .outline-item:hover { background: var(--accent-soft); color: var(--accent); }
+    .outline-item.outline-h2 { padding-left: 20px; font-size: 12.5px; }
+    .outline-item.outline-h3 { padding-left: 30px; font-size: 12px; color: var(--muted); }
+
+    .editor-scroll-area {
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: hidden;
+      display: flex;
+      justify-content: center;
+      padding: 28px 0 90px;
+      position: relative;
+    }
+
+    #pagesContainer {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 26px;
+      transition: transform 0.15s ease;
+    }
+
+    .page-sheet {
+      position: relative;
+      width: 816px;
+      height: 1056px;
+      background: var(--page-bg);
+      border-radius: 3px;
+      box-shadow: var(--page-shadow);
+      flex-shrink: 0;
+    }
+
+    .page-content {
+      position: absolute;
+      top: 76px;
+      left: 72px;
+      right: 72px;
+      bottom: 76px;
+      outline: none;
+      line-height: 1.6;
+      font-size: 14.5px;
+      color: var(--page-text);
+      overflow: hidden;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+
+    .page-content:empty::before {
+      content: "Start typing here…";
+      color: var(--muted);
+    }
+
+    .page-number {
+      position: absolute;
+      bottom: 26px;
+      left: 0;
+      right: 0;
+      text-align: center;
+      font-size: 10.5px;
+      color: var(--muted);
+      user-select: none;
+    }
+
+    #editor a { color: var(--accent); text-decoration: underline; }
+
+    .page-content h1, .page-content h2, .page-content h3 {
+      margin-top: 1em;
+      margin-bottom: 0.4em;
+      font-weight: 600;
+      font-family: "Source Serif 4", Georgia, serif;
+    }
+    .page-content h1 { font-size: 27px; }
+    .page-content h2 { font-size: 21px; }
+    .page-content h3 { font-size: 17px; }
+
+    .page-content table {
+      border-collapse: collapse;
+      margin: 10px 0;
+      width: 100%;
+    }
+    .page-content table td {
+      border: 1px solid var(--border);
+      padding: 6px 8px;
+      min-width: 30px;
+    }
+
+    .page-content img { max-width: 100%; border-radius: 4px; }
+    .page-content hr { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
+
+    /* ============ Find & replace ============ */
+    .find-bar {
+      position: absolute;
+      top: 12px;
+      right: 24px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--page-shadow);
+      padding: 8px;
+      display: none;
+      flex-direction: column;
+      gap: 6px;
+      z-index: 30;
+      width: 280px;
+    }
+
+    .find-bar.open { display: flex; }
+
+    .find-row { display: flex; gap: 6px; align-items: center; }
+
+    .find-row input {
+      flex: 1;
+      padding: 6px 8px;
+      border-radius: 5px;
+      border: 1px solid var(--border);
+      background: var(--surface-soft);
+      color: var(--text);
+      font-size: 12.5px;
+    }
+
+    .find-row .icon-btn { height: 28px; }
+
+    /* ============ Status bar ============ */
+    .statusbar {
+      height: 26px;
+      flex-shrink: 0;
+      background: var(--status-bg);
+      border-top: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 14px;
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .statusbar-group { display: flex; align-items: center; gap: 14px; }
+    .statusbar button.zoom-btn {
+      border: none; background: transparent; color: var(--muted); cursor: pointer; font-size: 12px; padding: 0 3px;
+    }
+    .statusbar button.zoom-btn:hover { color: var(--text); }
+
+    /* ============ Overlays / modals ============ */
+    .overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(10,12,20,0.45);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 50;
+    }
+
+    .overlay.visible { display: flex; }
+
+    .drop-zone {
+      border: 2px dashed var(--accent);
+      border-radius: 12px;
+      background: rgba(0,0,0,0.4);
+      padding: 40px 60px;
+      color: #ffffff;
+      text-align: center;
+      max-width: 420px;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.6);
+    }
+
+    .drop-zone h2 { margin: 0 0 8px; font-size: 20px; }
+    .drop-zone p { margin: 0 0 16px; font-size: 13px; opacity: 0.9; }
+
+    .drop-zone button {
+      border: none; background: #ffffff; color: #000000;
+      padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 600;
+    }
+    .drop-zone button:hover { background: #f0f0f0; }
+
+    .picker-panel {
+      background: var(--surface);
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      width: 440px;
+      max-width: 90vw;
+      max-height: 72vh;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+      overflow: hidden;
+    }
+
+    .picker-panel.narrow { width: 340px; }
+
+    .picker-header {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .picker-header h2 { margin: 0; font-size: 15px; color: var(--text); }
+
+    .picker-close {
+      border: none; background: transparent; font-size: 15px; cursor: pointer; color: var(--muted);
+      width: 26px; height: 26px; border-radius: 6px;
+    }
+    .picker-close:hover { background: var(--surface-soft); }
+
+    .picker-list { overflow-y: auto; padding: 6px; flex: 1; }
+
+    .picker-item {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 10px; border-radius: 7px; cursor: pointer; gap: 8px;
+    }
+    .picker-item:hover { background: var(--accent-soft); }
+
+    .picker-item-info { display: flex; flex-direction: column; gap: 2px; overflow: hidden; }
+    .picker-item-title-row { display: flex; align-items: center; gap: 6px; }
+    .picker-item-title {
+      font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+
+    .format-badge {
+      font-size: 10px; font-weight: 700; letter-spacing: 0.02em;
+      padding: 1px 5px; border-radius: 4px; background: var(--accent-soft); color: var(--accent); flex-shrink: 0;
+    }
+
+    .picker-item-date { font-size: 11px; color: var(--muted); }
+
+    .picker-item-actions { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
+    .picker-item-view, .picker-item-delete {
+      border: none; background: transparent; color: var(--muted); cursor: pointer; font-size: 13px;
+      padding: 4px 6px; border-radius: 5px; flex-shrink: 0;
+    }
+    .picker-item-view:hover { background: var(--accent-soft); color: var(--accent); }
+    .picker-item-delete:hover { background: rgba(224,71,92,0.12); color: var(--danger); }
+
+    .preview-panel { width: 860px; max-width: 94vw; height: 86vh; }
+    .preview-header-meta { font-size: 11px; color: var(--muted); }
+
+    .preview-body {
+      flex: 1; overflow: auto; background: var(--bg); display: flex; justify-content: center; padding: 20px;
+    }
+
+    .preview-frame { width: 100%; height: 100%; border: none; background: #ffffff; border-radius: 4px; }
+
+    .preview-readonly {
+      width: 800px; max-width: 100%; background: var(--page-bg); color: var(--page-text);
+      border-radius: 4px; box-shadow: var(--page-shadow); padding: 40px 60px;
+      line-height: 1.6; font-size: 14.5px; height: fit-content;
+    }
+
+    .preview-footer { padding: 10px 16px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px; }
+
+    .picker-empty { padding: 24px 16px; text-align: center; color: var(--muted); font-size: 13px; }
+
+    .format-options { padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+
+    .format-option {
+      text-align: left; padding: 10px 12px; border: 1px solid var(--border); border-radius: 7px;
+      background: var(--surface-soft); color: var(--text); cursor: pointer; font-size: 13px;
+      display: flex; flex-direction: column; gap: 2px;
+    }
+    .format-option:hover { border-color: var(--accent); background: var(--accent-soft); }
+    .format-option small { color: var(--muted); font-weight: 400; }
+
+    .table-picker { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+    .table-picker label { font-size: 12px; color: var(--muted); display: flex; flex-direction: column; gap: 4px; }
+    .table-picker input {
+      padding: 6px 8px; border-radius: 5px; border: 1px solid var(--border);
+      background: var(--surface-soft); color: var(--text); font-size: 13px;
+    }
+
+    /* ============ Auth gate ============ */
+    .auth-gate {
+      position: fixed; inset: 0; background: var(--bg); display: flex; align-items: center; justify-content: center; z-index: 200;
+    }
+
+    .auth-card {
+      width: 340px; max-width: 90vw; background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; padding: 30px 26px; box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+    }
+
+    .auth-brand { display: flex; align-items: center; gap: 9px; font-weight: 600; margin-bottom: 20px; color: var(--text); }
+    .auth-view h2 { margin: 0 0 4px; font-size: 16px; color: var(--text); }
+    .auth-sub { margin: 0 0 16px; font-size: 12px; color: var(--muted); }
+    .auth-view label { display: block; font-size: 11px; text-transform: uppercase; color: var(--muted); margin: 12px 0 4px; }
+    .auth-view input {
+      width: 100%; padding: 9px 10px; border-radius: 7px; border: 1px solid var(--border);
+      background: var(--surface-soft); color: var(--text); font-size: 13px;
+    }
+    .auth-err { min-height: 16px; font-size: 11px; color: var(--danger); margin-top: 8px; }
+    .auth-submit { width: 100%; margin-top: 14px; padding: 9px 0; text-align: center; }
+    .auth-link { display: block; text-align: center; margin-top: 14px; font-size: 11px; color: var(--accent); text-decoration: none; cursor: pointer; }
+    .auth-link:hover { text-decoration: underline; }
+
+    /* ============ Print ============ */
+    @media print {
+      .titlebar, .toolbar, .ribbon-tabs, .ribbon, .outline-panel, .statusbar, .find-bar, .overlay { display: none !important; }
+      .app-body, .editor-scroll-area { overflow: visible !important; padding: 0 !important; }
+      #pagesContainer { transform: none !important; gap: 0 !important; }
+      .page-sheet { box-shadow: none !important; page-break-after: always; }
+      .page-number { display: none; }
+    }
+
+    ::-webkit-scrollbar { width: 11px; height: 11px; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 6px; border: 3px solid transparent; background-clip: padding-box; }
+    ::-webkit-scrollbar-track { background: transparent; }
+  </style>
+</head>
+<body data-theme="light">
+
+  <!-- Inline auth gate -->
+  <div class="auth-gate" id="authGate">
+    <div class="auth-card">
+      <div class="auth-brand">
+        <div class="titlebar-mark">S</div>
+        <span>Sink Writer</span>
+      </div>
+
+      <div class="auth-view" id="authSignInView">
+        <h2>Sign in to Sink OS</h2>
+        <p class="auth-sub">Use your Sink OS account email and password.</p>
+        <label>Email</label>
+        <input type="email" id="authEmail" placeholder="you@example.com" autocomplete="username">
+        <label>Account Password</label>
+        <input type="password" id="authPassword" placeholder="Account password" autocomplete="current-password">
+        <div class="auth-err" id="authSignInErr"></div>
+        <button class="menu-button primary auth-submit" id="authSignInBtn">Sign In</button>
+        <a class="auth-link" id="authTroubleLink" href="#">Trouble signing in?</a>
+      </div>
+
+      <div class="auth-view" id="authUnlockView" style="display:none;">
+        <h2 id="authUnlockGreeting">Welcome back</h2>
+        <p class="auth-sub">Enter your OS password to continue.</p>
+        <label>OS Password</label>
+        <input type="password" id="authOsPassword" placeholder="OS password" autocomplete="current-password">
+        <div class="auth-err" id="authUnlockErr"></div>
+        <button class="menu-button primary auth-submit" id="authUnlockBtn">Unlock</button>
+        <a class="auth-link" id="authSwitchAccountLink" href="#">Switch account</a>
+      </div>
+
+      <div class="auth-view" id="authLoadingView">
+        <p class="auth-sub">Checking your session…</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Drag & drop image overlay -->
+  <div class="overlay" id="dropOverlay">
+    <div class="drop-zone">
+      <h2>Drop image to insert</h2>
+      <p>Drag and drop an image file here, or click the button below.</p>
+      <button id="dropBrowseBtn">Browse files…</button>
+    </div>
+  </div>
+
+  <!-- Open document picker -->
+  <div class="overlay" id="pickerOverlay">
+    <div class="picker-panel">
+      <div class="picker-header">
+        <h2>Open Document</h2>
+        <button class="picker-close" id="pickerCloseBtn">✖</button>
+      </div>
+      <div class="picker-list" id="pickerList">
+        <div class="picker-empty">Loading…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Read-only preview -->
+  <div class="overlay" id="previewOverlay">
+    <div class="picker-panel preview-panel">
+      <div class="picker-header">
+        <div>
+          <h2 id="previewTitle">Preview</h2>
+          <div class="preview-header-meta" id="previewMeta"></div>
+        </div>
+        <button class="picker-close" id="previewCloseBtn">✖</button>
+      </div>
+      <div class="preview-body" id="previewBody">
+        <div class="picker-empty">Loading…</div>
+      </div>
+      <div class="preview-footer">
+        <button class="menu-button ghost" id="previewEditBtn">✏ Open for editing</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Save-as format picker -->
+  <div class="overlay" id="formatOverlay">
+    <div class="picker-panel narrow">
+      <div class="picker-header">
+        <h2>Save as…</h2>
+        <button class="picker-close" id="formatCloseBtn">✖</button>
+      </div>
+      <div class="format-options">
+        <button class="format-option" data-format="pdf">📄 PDF <small>Read-only export — best for sharing</small></button>
+        <button class="format-option" data-format="docx">📝 Word Document (.docx) <small>Editable, reopens into Sink Writer</small></button>
+        <button class="format-option" data-format="txt">🧾 Plain Text (.txt) <small>No formatting, just the words</small></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Insert table picker -->
+  <div class="overlay" id="tableOverlay">
+    <div class="picker-panel narrow">
+      <div class="picker-header">
+        <h2>Insert Table</h2>
+        <button class="picker-close" id="tableCloseBtn">✖</button>
+      </div>
+      <div class="table-picker">
+        <label>Rows
+          <input type="number" id="tableRows" min="1" max="30" value="3">
+        </label>
+        <label>Columns
+          <input type="number" id="tableCols" min="1" max="12" value="3">
+        </label>
+        <button class="menu-button primary" id="tableInsertBtn">Insert</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Title bar -->
+  <div class="titlebar">
+    <div class="titlebar-left">
+      <div class="titlebar-mark">S</div>
+      <span class="titlebar-app">Sink Writer</span>
+      <span class="titlebar-doc" id="titlebarDoc" contenteditable="true" spellcheck="false">Untitled Document</span>
+      <span class="save-status" id="saveStatus"><span class="dot"></span><span id="saveStatusText">Unsaved</span></span>
+    </div>
+    <div class="titlebar-right">
+      <span class="titlebar-user" id="titlebarUser"></span>
+      <button class="titlebar-btn">–</button>
+      <button class="titlebar-btn close">×</button>
+    </div>
+  </div>
+
+  <!-- Toolbar -->
+  <div class="toolbar">
+    <div class="file-menu">
+      <button class="menu-button primary" id="fileMenuButton">File</button>
+      <div class="file-dropdown" id="fileDropdown">
+        <div class="file-item" data-action="new"><span>📄</span> New <span class="kbd">Ctrl+Alt+N</span></div>
+        <div class="file-item" data-action="open"><span>📂</span> Open <span class="kbd">Ctrl+O</span></div>
+        <div class="file-item" data-action="save"><span>💾</span> Save <span class="kbd">Ctrl+S</span></div>
+        <div class="file-item" data-action="saveas"><span>📝</span> Save As</div>
+        <div class="file-item divider"></div>
+        <div class="file-item" data-action="print"><span>🖨</span> Print <span class="kbd">Ctrl+P</span></div>
+        <div class="file-item" data-action="exportpdf"><span>⬇</span> Download a copy (PDF)</div>
+      </div>
+    </div>
+
+    <div class="toolbar-sep"></div>
+    <button class="icon-btn" id="undoBtn" title="Undo (Ctrl+Z)">↶</button>
+    <button class="icon-btn" id="redoBtn" title="Redo (Ctrl+Y)">↷</button>
+    <div class="toolbar-sep"></div>
+    <button class="icon-btn" id="findBtn" title="Find & replace (Ctrl+F)">🔍 Find</button>
+    <button class="icon-btn" id="outlineBtn" title="Toggle outline">☰ Outline</button>
+
+    <div class="toolbar-spacer"></div>
+    <span class="toolbar-hint">Sink OS V2</span>
+  </div>
+
+  <!-- Ribbon tabs -->
+  <div class="ribbon-tabs">
+    <div class="ribbon-tab active" data-tab="home">Home</div>
+    <div class="ribbon-tab" data-tab="insert">Insert</div>
+    <div class="ribbon-tab" data-tab="view">View</div>
+  </div>
+
+  <!-- Ribbon: Home -->
+  <div class="ribbon" id="ribbonHome">
+    <div class="ribbon-group">
+      <div class="ribbon-row">
+        <select id="styleSelect" class="ribbon-select">
+          <option value="p">Normal</option>
+          <option value="h1">Heading 1</option>
+          <option value="h2">Heading 2</option>
+          <option value="h3">Heading 3</option>
+        </select>
+        <select id="lineHeightSelect" class="ribbon-select" title="Line spacing">
+          <option value="1.2">1.0×</option>
+          <option value="1.6" selected>1.5×</option>
+          <option value="2">2.0×</option>
+        </select>
+      </div>
+      <div class="ribbon-group-title">Styles</div>
+    </div>
+
+    <div class="ribbon-group">
+      <div class="ribbon-row">
+        <select id="fontSelect" class="ribbon-select">
+          <option value="Inter">Inter</option>
+          <option value="Arial">Arial</option>
+          <option value="Helvetica">Helvetica</option>
+          <option value="Georgia">Georgia</option>
+          <option value="Source Serif 4">Source Serif</option>
+          <option value="Times New Roman">Times New Roman</option>
+          <option value="Courier New">Courier New</option>
+          <option value="JetBrains Mono">JetBrains Mono</option>
+          <option value="Verdana">Verdana</option>
+        </select>
+        <select id="sizeSelect" class="ribbon-select">
+          <option value="12px">12</option>
+          <option value="14.5px" selected>14</option>
+          <option value="16px">16</option>
+          <option value="18px">18</option>
+          <option value="24px">24</option>
+          <option value="32px">32</option>
+        </select>
+      </div>
+      <div class="ribbon-group-title">Font</div>
+    </div>
+
+    <div class="ribbon-group">
+      <div class="ribbon-row">
+        <button class="ribbon-btn" data-cmd="bold" title="Bold (Ctrl+B)"><b>B</b></button>
+        <button class="ribbon-btn" data-cmd="italic" title="Italic (Ctrl+I)"><i>I</i></button>
+        <button class="ribbon-btn" data-cmd="underline" title="Underline (Ctrl+U)"><u>U</u></button>
+        <button class="ribbon-btn" data-cmd="strikeThrough" title="Strikethrough"><s>S</s></button>
+        <button class="ribbon-btn" data-cmd="superscript" title="Superscript">x²</button>
+        <button class="ribbon-btn" data-cmd="subscript" title="Subscript">x₂</button>
+      </div>
+      <div class="ribbon-row">
+        <input type="color" id="fontColor" class="color-input" title="Text color" value="#1c1f26">
+        <input type="color" id="highlightColor" class="color-input" title="Highlight" value="#fff59d">
+      </div>
+      <div class="ribbon-group-title">Style</div>
+    </div>
+
+    <div class="ribbon-group">
+      <div class="ribbon-row">
+        <button class="ribbon-btn" data-cmd="justifyLeft" title="Align left">⯇</button>
+        <button class="ribbon-btn" data-cmd="justifyCenter" title="Align center">≡</button>
+        <button class="ribbon-btn" data-cmd="justifyRight" title="Align right">⯈</button>
+        <button class="ribbon-btn" data-cmd="justifyFull" title="Justify">☰</button>
+      </div>
+      <div class="ribbon-row">
+        <button class="ribbon-btn" data-cmd="insertUnorderedList" title="Bulleted list">•≡</button>
+        <button class="ribbon-btn" data-cmd="insertOrderedList" title="Numbered list">1≡</button>
+        <button class="ribbon-btn" data-cmd="outdent" title="Decrease indent">⇤</button>
+        <button class="ribbon-btn" data-cmd="indent" title="Increase indent">⇥</button>
+      </div>
+      <div class="ribbon-group-title">Paragraph</div>
+    </div>
+
+    <div class="ribbon-group">
+      <div class="ribbon-row">
+        <button class="ribbon-btn text" id="insertLinkBtn">🔗 Link</button>
+        <button class="ribbon-btn text" id="removeLinkBtn">✖ Link</button>
+      </div>
+      <div class="ribbon-group-title">Links</div>
+    </div>
+  </div>
+
+  <!-- Ribbon: Insert -->
+  <div class="ribbon" id="ribbonInsert" style="display:none;">
+    <div class="ribbon-group">
+      <div class="ribbon-row">
+        <button class="ribbon-btn text" id="insertImageBtn">🖼 Image</button>
+        <button class="ribbon-btn text" id="insertTableBtn">▦ Table</button>
+        <button class="ribbon-btn text" id="insertLineBtn">─ Line</button>
+      </div>
+      <div class="ribbon-group-title">Content</div>
+    </div>
+    <div class="ribbon-group">
+      <div class="ribbon-row">
+        <button class="ribbon-btn text" id="insertDateBtn">📅 Date/Time</button>
+        <button class="ribbon-btn text" id="insertPageBreakBtn">⤓ Page Break</button>
+      </div>
+      <div class="ribbon-group-title">Document</div>
+    </div>
+  </div>
+
+  <!-- Ribbon: View -->
+  <div class="ribbon" id="ribbonView" style="display:none;">
+    <div class="ribbon-group">
+      <div class="ribbon-row">
+        <button class="ribbon-btn text" id="zoomOutBtn">－</button>
+        <button class="ribbon-btn text" id="zoomResetBtn">100%</button>
+        <button class="ribbon-btn text" id="zoomInBtn">＋</button>
+      </div>
+      <div class="ribbon-group-title">Zoom</div>
+    </div>
+
+    <div class="ribbon-group">
+      <div class="ribbon-row">
+        <button class="ribbon-btn text" data-theme="light">☀ Light</button>
+        <button class="ribbon-btn text" data-theme="pureblack">⬛ Pure Black</button>
+        <button class="ribbon-btn text" data-theme="sinkdark">🌌 Sink Dark</button>
+      </div>
+      <div class="ribbon-group-title">Theme</div>
+    </div>
+
+    <div class="ribbon-group">
+      <div class="ribbon-row">
+        <button class="ribbon-btn text" id="toggleOutlineViewBtn">☰ Outline</button>
+      </div>
+      <div class="ribbon-group-title">Panels</div>
+    </div>
+  </div>
+
+  <!-- Body: outline sidebar + editor -->
+  <div class="app-body">
+    <div class="outline-panel" id="outlinePanel">
+      <div class="outline-header">Outline</div>
+      <div class="outline-list" id="outlineList"></div>
+    </div>
+
+    <div class="editor-scroll-area" id="editorScrollArea">
+      <div id="pagesContainer"></div>
+
+      <div class="find-bar" id="findBar">
+        <div class="find-row">
+          <input type="text" id="findInput" placeholder="Find in document…">
+          <button class="icon-btn" id="findPrevBtn" title="Previous">↑</button>
+          <button class="icon-btn" id="findNextBtn" title="Next">↓</button>
+          <button class="icon-btn" id="findCloseBtn" title="Close">✖</button>
+        </div>
+        <div class="find-row">
+          <input type="text" id="replaceInput" placeholder="Replace with…">
+          <button class="icon-btn" id="replaceBtn" title="Replace">Rep</button>
+          <button class="icon-btn" id="replaceAllBtn" title="Replace all">All</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Status bar -->
+  <div class="statusbar">
+    <div class="statusbar-group">
+      <span id="statusText">Ready</span>
+      <span id="wordCount">0 words</span>
+      <span id="pageCount">Page 1 of 1</span>
+    </div>
+    <div class="statusbar-group">
+      <button class="zoom-btn" id="statusZoomOut">－</button>
+      <span id="zoomStatus">100%</span>
+      <button class="zoom-btn" id="statusZoomIn">＋</button>
+    </div>
+  </div>
+
+  <!-- Libraries -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/html-docx-js/dist/html-docx.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
+  <script>
+    // ---------------------------------------------------------------
+    // Supabase setup — same project as SinkOSAuth / Chat / Calls / Nexus
+    // ---------------------------------------------------------------
+    const SUPABASE_URL = "https://okknkixdbjsnqrwlfgzn.supabase.co";
+    const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9ra25raXhkYmpzbnFyd2xmZ3puIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI1NzgwNzQsImV4cCI6MjA5ODE1NDA3NH0.L2QDUnez8KjIM8yg9cB9cs-tTq6nedk3CCpuJBjWBEg";
+    const SINKOS_AUTH_URL = "https://ravda-boeing.github.io/SinkOSAuth/index.html";
+    const DOCS_BUCKET = "user-documents";
+
+    const MIME_TYPES = {
+      pdf: "application/pdf",
+      docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      txt: "text/plain"
+    };
+
+    const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    let currentUser = null;
+    let currentDocId = null;
+    let currentDocName = "Untitled Document";
+    let currentFormat = null;
+    let currentStoragePath = null;
+    let hasUnsavedChanges = false;
+    let currentProfile = null;
+
+    // ---------------------------------------------------------------
+    // Auth gate (unchanged logic from V1.2, restyled)
+    // ---------------------------------------------------------------
+    const authGate = document.getElementById('authGate');
+    const authSignInView = document.getElementById('authSignInView');
+    const authUnlockView = document.getElementById('authUnlockView');
+    const authLoadingView = document.getElementById('authLoadingView');
+    const authEmail = document.getElementById('authEmail');
+    const authPassword = document.getElementById('authPassword');
+    const authSignInErr = document.getElementById('authSignInErr');
+    const authSignInBtn = document.getElementById('authSignInBtn');
+    const authTroubleLink = document.getElementById('authTroubleLink');
+    const authUnlockGreeting = document.getElementById('authUnlockGreeting');
+    const authOsPassword = document.getElementById('authOsPassword');
+    const authUnlockErr = document.getElementById('authUnlockErr');
+    const authUnlockBtn = document.getElementById('authUnlockBtn');
+    const authSwitchAccountLink = document.getElementById('authSwitchAccountLink');
+
+    function showAuthView(view) {
+      authSignInView.style.display = view === 'signin' ? 'block' : 'none';
+      authUnlockView.style.display = view === 'unlock' ? 'block' : 'none';
+      authLoadingView.style.display = view === 'loading' ? 'block' : 'none';
+    }
+
+    async function hashOsPassword(pw) {
+      const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pw));
+      return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    async function fetchProfile(userId) {
+      const { data } = await sb.from('profiles').select('username, os_password_hash').eq('id', userId).single();
+      return data;
+    }
+
+    function redirectToOnboarding() {
+      const redirectTarget = encodeURIComponent(window.location.href);
+      window.location.href = `${SINKOS_AUTH_URL.replace('index.html', 'onboarding.html')}?redirect_to=${redirectTarget}`;
+    }
+
+    function goToFullSignIn() {
+      const redirectTarget = encodeURIComponent(window.location.href);
+      window.location.href = `${SINKOS_AUTH_URL}?redirect_to=${redirectTarget}`;
+    }
+
+    async function bootAuth() {
+      showAuthView('loading');
+      const { data: { session } } = await sb.auth.getSession();
+      if (!session) { showAuthView('signin'); return; }
+
+      currentUser = session.user;
+      const profile = await fetchProfile(currentUser.id);
+      if (!profile) { redirectToOnboarding(); return; }
+
+      currentProfile = profile;
+      authUnlockGreeting.textContent = `Welcome back, ${profile.username}`;
+      showAuthView('unlock');
+    }
+
+    authSignInBtn.addEventListener('click', async () => {
+      const email = authEmail.value.trim();
+      const password = authPassword.value;
+      authSignInErr.textContent = '';
+      if (!email || !password) { authSignInErr.textContent = 'Enter your email and password.'; return; }
+
+      authSignInBtn.disabled = true;
+      authSignInBtn.textContent = 'Signing in…';
+      const { data, error } = await sb.auth.signInWithPassword({ email, password });
+      authSignInBtn.disabled = false;
+      authSignInBtn.textContent = 'Sign In';
+
+      if (error) { authSignInErr.textContent = error.message; return; }
+
+      currentUser = data.user;
+      const profile = await fetchProfile(currentUser.id);
+      if (!profile) { redirectToOnboarding(); return; }
+
+      currentProfile = profile;
+      authUnlockGreeting.textContent = `Welcome back, ${profile.username}`;
+      authPassword.value = '';
+      showAuthView('unlock');
+    });
+
+    authTroubleLink.addEventListener('click', (e) => { e.preventDefault(); goToFullSignIn(); });
+
+    authUnlockBtn.addEventListener('click', async () => {
+      const pw = authOsPassword.value;
+      authUnlockErr.textContent = '';
+      if (!pw) { authUnlockErr.textContent = 'Enter your OS password.'; return; }
+
+      authUnlockBtn.disabled = true;
+      authUnlockBtn.textContent = 'Unlocking…';
+      const inputHash = await hashOsPassword(pw);
+      const storedHash = currentProfile ? currentProfile.os_password_hash : null;
+      authUnlockBtn.disabled = false;
+      authUnlockBtn.textContent = 'Unlock';
+
+      if (storedHash && inputHash === storedHash) {
+        unlockApp();
+      } else {
+        authUnlockErr.textContent = 'Incorrect password. Try again.';
+        authOsPassword.value = '';
+      }
+    });
+
+    authOsPassword.addEventListener('keydown', (e) => { if (e.key === 'Enter') authUnlockBtn.click(); });
+    authPassword.addEventListener('keydown', (e) => { if (e.key === 'Enter') authSignInBtn.click(); });
+
+    authSwitchAccountLink.addEventListener('click', async (e) => {
+      e.preventDefault();
+      await sb.auth.signOut();
+      currentUser = null;
+      currentProfile = null;
+      authEmail.value = '';
+      authPassword.value = '';
+      showAuthView('signin');
+    });
+
+    function unlockApp() {
+      authGate.style.display = 'none';
+      const label = document.getElementById('titlebarUser');
+      if (label) label.textContent = currentUser.email || "";
+    }
+
+    sb.auth.onAuthStateChange((_event, session) => {
+      if (!session && currentUser) {
+        currentUser = null;
+        currentProfile = null;
+        authGate.style.display = 'flex';
+        showAuthView('signin');
+      }
+    });
+
+    async function requireAuth() {
+      if (currentUser) return currentUser;
+      authGate.style.display = 'flex';
+      await bootAuth();
+      return null;
+    }
+
+    // ---------------------------------------------------------------
+    // Element references
+    // ---------------------------------------------------------------
+    const pagesContainer = document.getElementById('pagesContainer');
+    const editorScrollArea = document.getElementById('editorScrollArea');
+    const fontSelect = document.getElementById('fontSelect');
+    const sizeSelect = document.getElementById('sizeSelect');
+    const fontColor = document.getElementById('fontColor');
+    const highlightColor = document.getElementById('highlightColor');
+    const styleSelect = document.getElementById('styleSelect');
+    const lineHeightSelect = document.getElementById('lineHeightSelect');
+    const statusText = document.getElementById('statusText');
+    const wordCountEl = document.getElementById('wordCount');
+    const pageCountEl = document.getElementById('pageCount');
+    const zoomStatus = document.getElementById('zoomStatus');
+    const fileMenuButton = document.getElementById('fileMenuButton');
+    const fileDropdown = document.getElementById('fileDropdown');
+    const ribbonTabs = document.querySelectorAll('.ribbon-tab');
+    const ribbonHome = document.getElementById('ribbonHome');
+    const ribbonInsert = document.getElementById('ribbonInsert');
+    const ribbonView = document.getElementById('ribbonView');
+    const titlebarDoc = document.getElementById('titlebarDoc');
+    const saveStatusEl = document.getElementById('saveStatus');
+    const saveStatusText = document.getElementById('saveStatusText');
+    const outlinePanel = document.getElementById('outlinePanel');
+    const outlineList = document.getElementById('outlineList');
+    const findBar = document.getElementById('findBar');
+    const findInput = document.getElementById('findInput');
+    const replaceInput = document.getElementById('replaceInput');
+
+    const dropOverlay = document.getElementById('dropOverlay');
+    const dropBrowseBtn = document.getElementById('dropBrowseBtn');
+    const pickerOverlay = document.getElementById('pickerOverlay');
+    const pickerList = document.getElementById('pickerList');
+    const pickerCloseBtn = document.getElementById('pickerCloseBtn');
+    const formatOverlay = document.getElementById('formatOverlay');
+    const formatCloseBtn = document.getElementById('formatCloseBtn');
+    const previewOverlay = document.getElementById('previewOverlay');
+    const previewTitle = document.getElementById('previewTitle');
+    const previewMeta = document.getElementById('previewMeta');
+    const previewBody = document.getElementById('previewBody');
+    const previewCloseBtn = document.getElementById('previewCloseBtn');
+    const previewEditBtn = document.getElementById('previewEditBtn');
+    const tableOverlay = document.getElementById('tableOverlay');
+    const tableCloseBtn = document.getElementById('tableCloseBtn');
+    const tableInsertBtn = document.getElementById('tableInsertBtn');
+
+    let previewObjectUrl = null;
+    let previewDoc = null;
+    let zoomLevel = 1;
+    let lastFocusedPageContent = null;
+    let autosaveTimer = null;
+
+    function setStatus(msg) {
+      statusText.textContent = msg;
+      if (!msg || msg === "Ready") return;
+      setTimeout(() => { statusText.textContent = "Ready"; }, 2500);
+    }
+
+    function setSaveStatus(state, text) {
+      saveStatusEl.className = 'save-status ' + state;
+      saveStatusText.textContent = text;
+    }
+
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+
+    function markDirty() {
+      hasUnsavedChanges = true;
+      setSaveStatus('unsaved', currentDocId ? 'Unsaved changes' : 'Not saved yet');
+      scheduleAutosave();
+    }
+
+    function scheduleAutosave() {
+      if (!currentDocId) return; // only autosave documents that already have a home
+      clearTimeout(autosaveTimer);
+      autosaveTimer = setTimeout(async () => {
+        if (!hasUnsavedChanges || !currentDocId) return;
+        setSaveStatus('saving', 'Saving…');
+        await saveDocument(false, true);
+      }, 2500);
+    }
+
+    // =================================================================
+    // PAGINATION ENGINE
+    // Sink Writer paginates like a real document: each .page-sheet has a
+    // fixed-height .page-content. When content overflows a page, the
+    // overflowing block-level nodes are moved onto a newly created next
+    // page; when content shrinks, nodes are pulled back from the next
+    // page. This runs after every edit, debounced to one animation frame.
+    // =================================================================
+    let paginationRAF = null;
+    let paginationInProgress = false;
+    let paginationQueued = false;
+
+    function getPageWrappers() { return Array.from(pagesContainer.querySelectorAll('.page-sheet')); }
+    function getPageContents() { return Array.from(pagesContainer.querySelectorAll('.page-content')); }
+
+    function createPageWrapper() {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'page-sheet';
+
+      const content = document.createElement('div');
+      content.className = 'page-content';
+      content.id = 'editor';
+      content.contentEditable = 'true';
+      content.spellcheck = true;
+      wrapper.appendChild(content);
+
+      const pageNum = document.createElement('div');
+      pageNum.className = 'page-number';
+      wrapper.appendChild(pageNum);
+
+      return wrapper;
+    }
+
+    function addPageAtEnd() {
+      const wrapper = createPageWrapper();
+      pagesContainer.appendChild(wrapper);
+      updatePageNumbers();
+      return wrapper.querySelector('.page-content');
+    }
+
+    function insertPageAfter(index) {
+      const wrappers = getPageWrappers();
+      const wrapper = createPageWrapper();
+      if (index + 1 >= wrappers.length) {
+        pagesContainer.appendChild(wrapper);
+      } else {
+        pagesContainer.insertBefore(wrapper, wrappers[index + 1]);
+      }
+      updatePageNumbers();
+      return wrapper.querySelector('.page-content');
+    }
+
+    function updatePageNumbers() {
+      const wrappers = getPageWrappers();
+      wrappers.forEach((w, i) => {
+        const label = w.querySelector('.page-number');
+        if (label) label.textContent = `Page ${i + 1}`;
+      });
+      pageCountEl.textContent = `Page ${currentVisiblePage()} of ${wrappers.length}`;
+    }
+
+    function currentVisiblePage() {
+      const wrappers = getPageWrappers();
+      if (!wrappers.length) return 1;
+      const areaTop = editorScrollArea.scrollTop;
+      let best = 0;
+      let bestDist = Infinity;
+      wrappers.forEach((w, i) => {
+        const dist = Math.abs(w.offsetTop - areaTop);
+        if (dist < bestDist) { bestDist = dist; best = i; }
+      });
+      return best + 1;
+    }
+
+    function schedulePagination() {
+      if (paginationRAF) cancelAnimationFrame(paginationRAF);
+      paginationRAF = requestAnimationFrame(() => { paginationRAF = null; repaginate(); });
+    }
+
+    function repaginate() {
+      if (paginationInProgress) { paginationQueued = true; return; }
+      paginationInProgress = true;
+
+      const sel = window.getSelection();
+      let savedRange = null;
+      if (sel && sel.rangeCount > 0) {
+        try { savedRange = sel.getRangeAt(0).cloneRange(); } catch (e) { savedRange = null; }
+      }
+
+      // Pass 1: push overflow forward, creating pages as needed.
+      let guard = 0, changed = true;
+      while (changed && guard < 200) {
+        changed = false; guard++;
+        const contents = getPageContents();
+        for (let i = 0; i < contents.length; i++) {
+          const el = contents[i];
+          let safety = 0;
+          while (el.scrollHeight > el.clientHeight + 1 && el.childNodes.length > 0 && safety < 200) {
+            safety++;
+            const wrappers = getPageWrappers();
+            let nextEl = (i + 1 >= wrappers.length) ? insertPageAfter(i) : getPageContents()[i + 1];
+            const node = el.lastChild;
+            nextEl.insertBefore(node, nextEl.firstChild);
+            changed = true;
+          }
+        }
+      }
+
+      // Pass 2: pull content back from following pages when there's room.
+      guard = 0; changed = true;
+      while (changed && guard < 200) {
+        changed = false; guard++;
+        const contents = getPageContents();
+        for (let i = 0; i < contents.length - 1; i++) {
+          const el = contents[i];
+          const nextEl = contents[i + 1];
+          let safety = 0;
+          while (nextEl.firstChild && safety < 200) {
+            safety++;
+            const node = nextEl.firstChild;
+            el.appendChild(node);
+            if (el.scrollHeight > el.clientHeight + 1) {
+              nextEl.insertBefore(node, nextEl.firstChild);
+              break;
+            }
+            changed = true;
+          }
+        }
+      }
+
+      // Pass 3: drop trailing empty pages (always keep at least one).
+      let wrappers = getPageWrappers();
+      while (wrappers.length > 1) {
+        const last = wrappers[wrappers.length - 1];
+        const contentEl = last.querySelector('.page-content');
+        const isEmpty = !contentEl.firstChild ||
+          (contentEl.textContent.trim() === '' && !contentEl.querySelector('img,table,hr'));
+        if (isEmpty) { last.remove(); wrappers = getPageWrappers(); } else break;
+      }
+
+      updatePageNumbers();
+
+      if (savedRange) {
+        try {
+          sel.removeAllRanges();
+          sel.addRange(savedRange);
+          let host = savedRange.startContainer;
+          while (host && host.nodeType !== 1) host = host.parentNode;
+          const hostContent = host && host.closest ? host.closest('.page-content') : null;
+          if (hostContent) hostContent.focus({ preventScroll: true });
+        } catch (e) { /* best-effort cursor restore */ }
+      }
+
+      paginationInProgress = false;
+      if (paginationQueued) { paginationQueued = false; schedulePagination(); }
+      updateWordCount();
+      if (outlinePanel.classList.contains('open')) buildOutline();
+    }
+
+    function resetToSinglePage() {
+      pagesContainer.innerHTML = '';
+      addPageAtEnd();
+      updatePageNumbers();
+      updateWordCount();
+    }
+
+    function loadHtmlIntoPages(html) {
+      pagesContainer.innerHTML = '';
+      const firstContent = addPageAtEnd();
+      firstContent.innerHTML = html || '';
+      schedulePagination();
+    }
+
+    function getAllPagesHTML() {
+      return getPageContents().map(el => el.innerHTML).join('');
+    }
+
+    function getAllPagesText() {
+      return getPageContents().map(el => el.innerText).join('\n');
+    }
+
+    function updateWordCount() {
+      const text = getAllPagesText().trim();
+      const words = text.length ? text.split(/\s+/).filter(Boolean).length : 0;
+      const chars = text.length;
+      wordCountEl.textContent = `${words} word${words === 1 ? '' : 's'} · ${chars} char${chars === 1 ? '' : 's'}`;
+    }
+
+    // ---------------------------------------------------------------
+    // Focus tracking across multiple contenteditable pages
+    // ---------------------------------------------------------------
+    pagesContainer.addEventListener('focusin', (e) => {
+      const pc = e.target.closest('.page-content');
+      if (pc) lastFocusedPageContent = pc;
+    });
+
+    function ensureEditorFocus() {
+      const active = document.activeElement;
+      if (active && active.closest && active.closest('.page-content')) return;
+      const target = lastFocusedPageContent || getPageContents()[0];
+      if (!target) return;
+      target.focus();
+      const r = document.createRange();
+      r.selectNodeContents(target);
+      r.collapse(false);
+      const s = window.getSelection();
+      s.removeAllRanges();
+      s.addRange(r);
+    }
+
+    pagesContainer.addEventListener('input', () => {
+      markDirty();
+      schedulePagination();
+    });
+
+    editorScrollArea.addEventListener('scroll', () => { updatePageNumbers(); }, { passive: true });
+
+    // Init with one empty page
+    resetToSinglePage();
+
+    // ---------------------------------------------------------------
+    // Ribbon tab switching
+    // ---------------------------------------------------------------
+    ribbonTabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        ribbonTabs.forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        const target = tab.getAttribute('data-tab');
+        ribbonHome.style.display = target === 'home' ? 'flex' : 'none';
+        ribbonInsert.style.display = target === 'insert' ? 'flex' : 'none';
+        ribbonView.style.display = target === 'view' ? 'flex' : 'none';
+      });
+    });
+
+    // Keep toolbar buttons from stealing focus/selection away from the page
+    document.querySelectorAll('.ribbon-btn, .icon-btn, .ribbon-select, .color-input, .titlebar-btn').forEach(el => {
+      el.addEventListener('mousedown', (e) => {
+        if (el.tagName === 'SELECT' || el.tagName === 'INPUT') return;
+        e.preventDefault();
+      });
+    });
+
+    // Font family / size
+    fontSelect.addEventListener('change', () => { ensureEditorFocus(); document.execCommand('fontName', false, fontSelect.value); schedulePagination(); });
+    sizeSelect.addEventListener('change', () => {
+      ensureEditorFocus();
+      document.execCommand('fontSize', false, "7");
+      getPageContents().forEach(pc => {
+        pc.querySelectorAll("font[size='7']").forEach(f => { f.removeAttribute('size'); f.style.fontSize = sizeSelect.value; });
+      });
+      schedulePagination();
+    });
+
+    fontColor.addEventListener('input', () => { ensureEditorFocus(); document.execCommand('foreColor', false, fontColor.value); });
+    highlightColor.addEventListener('input', () => { ensureEditorFocus(); document.execCommand('backColor', false, highlightColor.value); });
+
+    document.querySelectorAll('.ribbon-btn[data-cmd]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        ensureEditorFocus();
+        document.execCommand(btn.getAttribute('data-cmd'), false, null);
+        schedulePagination();
+      });
+    });
+
+    styleSelect.addEventListener('change', () => {
+      ensureEditorFocus();
+      const value = styleSelect.value;
+      const blockTag = value === 'h1' ? 'H1' : value === 'h2' ? 'H2' : value === 'h3' ? 'H3' : 'P';
+      document.execCommand('formatBlock', false, blockTag);
+      schedulePagination();
+    });
+
+    lineHeightSelect.addEventListener('change', () => {
+      ensureEditorFocus();
+      const sel = window.getSelection();
+      if (!sel.rangeCount) return;
+      let node = sel.getRangeAt(0).startContainer;
+      while (node && node.nodeType !== 1) node = node.parentNode;
+      const block = node ? node.closest('div,p,h1,h2,h3,li') : null;
+      if (block) block.style.lineHeight = lineHeightSelect.value;
+      schedulePagination();
+    });
+
+    // Undo/redo
+    document.getElementById('undoBtn').addEventListener('click', () => { ensureEditorFocus(); document.execCommand('undo'); schedulePagination(); });
+    document.getElementById('redoBtn').addEventListener('click', () => { ensureEditorFocus(); document.execCommand('redo'); schedulePagination(); });
+
+    // Links
+    document.getElementById('insertLinkBtn').addEventListener('click', () => {
+      ensureEditorFocus();
+      const selection = window.getSelection();
+      if (!selection || selection.toString().trim() === "") { alert("Select some text first to turn into a link."); return; }
+      const url = prompt("Enter URL (include https://):", "https://");
+      if (url && url.trim() !== "") { document.execCommand('createLink', false, url.trim()); setStatus("Link inserted"); }
+    });
+    document.getElementById('removeLinkBtn').addEventListener('click', () => { ensureEditorFocus(); document.execCommand('unlink', false, null); setStatus("Link removed"); });
+
+    // Insert: image / line / date
+    document.getElementById('insertImageBtn').addEventListener('click', () => { ensureEditorFocus(); openImageDropOverlay(); });
+    document.getElementById('insertLineBtn').addEventListener('click', () => { ensureEditorFocus(); document.execCommand('insertHorizontalRule', false, null); schedulePagination(); setStatus("Line inserted"); });
+    document.getElementById('insertDateBtn').addEventListener('click', () => {
+      ensureEditorFocus();
+      document.execCommand('insertText', false, new Date().toLocaleString());
+      schedulePagination();
+      setStatus("Date/time inserted");
+    });
+
+    // Insert: table
+    document.getElementById('insertTableBtn').addEventListener('click', () => { tableOverlay.classList.add('visible'); });
+    tableCloseBtn.addEventListener('click', () => tableOverlay.classList.remove('visible'));
+    tableOverlay.addEventListener('click', (e) => { if (e.target === tableOverlay) tableOverlay.classList.remove('visible'); });
+    tableInsertBtn.addEventListener('click', () => {
+      const rows = Math.max(1, Math.min(30, parseInt(document.getElementById('tableRows').value, 10) || 1));
+      const cols = Math.max(1, Math.min(12, parseInt(document.getElementById('tableCols').value, 10) || 1));
+      let html = '<table>';
+      for (let r = 0; r < rows; r++) {
+        html += '<tr>';
+        for (let c = 0; c < cols; c++) html += '<td><br></td>';
+        html += '</tr>';
+      }
+      html += '</table><p><br></p>';
+      tableOverlay.classList.remove('visible');
+      ensureEditorFocus();
+      document.execCommand('insertHTML', false, html);
+      schedulePagination();
+      setStatus("Table inserted");
+    });
+
+    // Insert: manual page break
+    document.getElementById('insertPageBreakBtn').addEventListener('click', () => {
+      ensureEditorFocus();
+      const activeContent = document.activeElement.closest ? document.activeElement.closest('.page-content') : null;
+      const host = activeContent || lastFocusedPageContent || getPageContents()[0];
+      if (!host) return;
+      const idx = getPageContents().indexOf(host);
+      const sel = window.getSelection();
+      if (!sel.rangeCount) return;
+      const range = sel.getRangeAt(0);
+      const afterRange = range.cloneRange();
+      afterRange.setEndAfter(host.lastChild || host);
+      const frag = afterRange.extractContents();
+
+      const newPageContent = insertPageAfter(idx);
+      newPageContent.insertBefore(frag, newPageContent.firstChild);
+
+      schedulePagination();
+      const r = document.createRange();
+      r.selectNodeContents(newPageContent);
+      r.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(r);
+      newPageContent.focus();
+      setStatus("Page break inserted");
+    });
+
+    // Zoom
+    function updateZoom() {
+      pagesContainer.style.transform = `scale(${zoomLevel})`;
+      pagesContainer.style.transformOrigin = 'top center';
+      const pct = Math.round(zoomLevel * 100) + "%";
+      zoomStatus.textContent = pct;
+      document.getElementById('zoomResetBtn').textContent = pct;
+    }
+    function zoomIn() { zoomLevel = Math.min(2, zoomLevel + 0.1); updateZoom(); }
+    function zoomOut() { zoomLevel = Math.max(0.5, zoomLevel - 0.1); updateZoom(); }
+    document.getElementById('zoomInBtn').addEventListener('click', zoomIn);
+    document.getElementById('zoomOutBtn').addEventListener('click', zoomOut);
+    document.getElementById('statusZoomIn').addEventListener('click', zoomIn);
+    document.getElementById('statusZoomOut').addEventListener('click', zoomOut);
+    document.getElementById('zoomResetBtn').addEventListener('click', () => { zoomLevel = 1; updateZoom(); });
+
+    // Theme
+    document.querySelectorAll('.ribbon-btn[data-theme]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const theme = btn.getAttribute('data-theme');
+        document.body.setAttribute('data-theme', theme);
+        setStatus("Theme: " + (theme === 'light' ? 'Light' : theme === 'pureblack' ? 'Pure Black' : 'Sink Dark'));
+      });
+    });
+
+    // Outline sidebar
+    function toggleOutline() {
+      outlinePanel.classList.toggle('open');
+      if (outlinePanel.classList.contains('open')) buildOutline();
+    }
+    document.getElementById('outlineBtn').addEventListener('click', toggleOutline);
+    document.getElementById('toggleOutlineViewBtn').addEventListener('click', toggleOutline);
+
+    function buildOutline() {
+      outlineList.innerHTML = '';
+      const contents = getPageContents();
+      let any = false;
+      contents.forEach(pc => {
+        pc.querySelectorAll('h1,h2,h3').forEach(h => {
+          any = true;
+          const item = document.createElement('div');
+          item.className = 'outline-item outline-' + h.tagName.toLowerCase();
+          item.textContent = h.textContent || '(untitled heading)';
+          item.addEventListener('click', () => h.scrollIntoView({ behavior: 'smooth', block: 'center' }));
+          outlineList.appendChild(item);
+        });
+      });
+      if (!any) outlineList.innerHTML = '<div class="picker-empty">No headings yet. Use Styles → Heading to add some.</div>';
+    }
+
+    // ---------------------------------------------------------------
+    // Find & replace (uses the browser's native text search, which
+    // works across all page contenteditables since they're all part
+    // of the same document).
+    // ---------------------------------------------------------------
+    function openFindBar() {
+      findBar.classList.add('open');
+      findInput.focus();
+      findInput.select();
+    }
+    function closeFindBar() {
+      findBar.classList.remove('open');
+      window.getSelection().removeAllRanges();
+    }
+    document.getElementById('findBtn').addEventListener('click', openFindBar);
+    document.getElementById('findCloseBtn').addEventListener('click', closeFindBar);
+
+    document.getElementById('findNextBtn').addEventListener('click', () => {
+      const term = findInput.value;
+      if (!term) return;
+      if (!window.find(term, false, false, true)) setStatus("No more matches");
+    });
+    document.getElementById('findPrevBtn').addEventListener('click', () => {
+      const term = findInput.value;
+      if (!term) return;
+      if (!window.find(term, false, true, true)) setStatus("No more matches");
+    });
+    findInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') document.getElementById('findNextBtn').click();
+      if (e.key === 'Escape') closeFindBar();
+    });
+
+    document.getElementById('replaceBtn').addEventListener('click', () => {
+      const term = findInput.value;
+      const repl = replaceInput.value;
+      if (!term) return;
+      const sel = window.getSelection();
+      if (sel && sel.toString() && sel.toString().toLowerCase() === term.toLowerCase()) {
+        document.execCommand('insertText', false, repl);
+        schedulePagination();
+      }
+      window.find(term, false, false, true);
+    });
+
+    document.getElementById('replaceAllBtn').addEventListener('click', () => {
+      const term = findInput.value;
+      const repl = replaceInput.value;
+      if (!term) return;
+      let count = 0;
+      window.getSelection().removeAllRanges();
+      while (window.find(term, false, false, true) && count < 2000) {
+        document.execCommand('insertText', false, repl);
+        count++;
+      }
+      schedulePagination();
+      setStatus(`Replaced ${count} occurrence${count === 1 ? '' : 's'}`);
+    });
+
+    // ---------------------------------------------------------------
+    // File menu
+    // ---------------------------------------------------------------
+    fileMenuButton.addEventListener('click', () => fileDropdown.classList.toggle('open'));
+    document.addEventListener('click', (e) => {
+      if (!fileDropdown.contains(e.target) && e.target !== fileMenuButton) fileDropdown.classList.remove('open');
+    });
+
+    fileDropdown.querySelectorAll('.file-item[data-action]').forEach(item => {
+      item.addEventListener('click', async () => {
+        const action = item.getAttribute('data-action');
+        fileDropdown.classList.remove('open');
+        if (action === 'new') await handleNewDocument();
+        if (action === 'save') await saveDocument(false);
+        if (action === 'open') await openDocumentPicker();
+        if (action === 'saveas') await saveDocument(true);
+        if (action === 'exportpdf') await downloadPdfCopy();
+        if (action === 'print') window.print();
+      });
+    });
+
+    async function handleNewDocument() {
+      if (!hasUnsavedChanges || confirm("Start a new document? Unsaved changes will be lost.")) {
+        resetToSinglePage();
+        currentDocId = null;
+        currentDocName = "Untitled Document";
+        currentFormat = null;
+        currentStoragePath = null;
+        titlebarDoc.textContent = currentDocName;
+        hasUnsavedChanges = false;
+        setSaveStatus('unsaved', 'Not saved yet');
+        setStatus("New document");
+      }
+    }
+
+    // Inline document title editing
+    titlebarDoc.addEventListener('input', () => {
+      currentDocName = titlebarDoc.textContent.trim() || "Untitled Document";
+      markDirty();
+    });
+    titlebarDoc.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); titlebarDoc.blur(); } });
+    titlebarDoc.addEventListener('blur', () => { if (!titlebarDoc.textContent.trim()) titlebarDoc.textContent = currentDocName || "Untitled Document"; });
+
+    // ---------------------------------------------------------------
+    // Format picker modal
+    // ---------------------------------------------------------------
+    function pickFormat() {
+      return new Promise((resolve) => {
+        formatOverlay.classList.add('visible');
+        function cleanup(result) {
+          formatOverlay.classList.remove('visible');
+          formatOverlay.querySelectorAll('[data-format]').forEach(b => b.removeEventListener('click', onPick));
+          formatCloseBtn.removeEventListener('click', onClose);
+          formatOverlay.removeEventListener('click', onBackdrop);
+          resolve(result);
+        }
+        function onPick(e) { cleanup(e.currentTarget.getAttribute('data-format')); }
+        function onClose() { cleanup(null); }
+        function onBackdrop(e) { if (e.target === formatOverlay) cleanup(null); }
+        formatOverlay.querySelectorAll('[data-format]').forEach(b => b.addEventListener('click', onPick));
+        formatCloseBtn.addEventListener('click', onClose);
+        formatOverlay.addEventListener('click', onBackdrop);
+      });
+    }
+
+    // ---------------------------------------------------------------
+    // File generation (draws from all pages, concatenated)
+    // ---------------------------------------------------------------
+    async function generatePdfBlob() {
+      const temp = document.createElement('div');
+      temp.style.width = '672px';
+      temp.style.fontFamily = 'Inter, sans-serif';
+      temp.innerHTML = getAllPagesHTML();
+      const opt = { margin: 15, image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2 }, jsPDF: { unit: 'pt', format: 'a4', orientation: 'portrait' } };
+      return await html2pdf().from(temp).set(opt).outputPdf('blob');
+    }
+
+    function generateDocxBlob() {
+      // Closing tags are built via concatenation so Live Server's raw
+      // "</body>" scan doesn't inject its reload script mid-template.
+      const closeBody = "</" + "body>";
+      const closeHtml = "</" + "html>";
+      const htmlString = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${escapeHtml(currentDocName)}</title></head><body>${getAllPagesHTML()}${closeBody}${closeHtml}`;
+      return htmlDocx.asBlob(htmlString);
+    }
+
+    function generateTxtBlob() {
+      return new Blob([getAllPagesText()], { type: 'text/plain' });
+    }
+
+    async function generateBlobForFormat(format) {
+      if (format === 'pdf') return generatePdfBlob();
+      if (format === 'docx') return generateDocxBlob();
+      return generateTxtBlob();
+    }
+
+    // ---------------------------------------------------------------
+    // Save / Save As
+    // ---------------------------------------------------------------
+    async function saveDocument(forceSaveAs, isAutosave) {
+      if (!currentUser) { await requireAuth(); if (!currentUser) return; }
+
+      const needsNewTarget = forceSaveAs || !currentDocId;
+      let format = currentFormat;
+      let title = currentDocName;
+
+      if (needsNewTarget) {
+        format = await pickFormat();
+        if (!format) return;
+        const promptedTitle = (prompt("Save as (file name):", forceSaveAs ? currentDocName : titlebarDoc.textContent.trim() || "Untitled Document") || "").trim();
+        if (!promptedTitle) return;
+        title = promptedTitle;
+      }
+
+      if (!isAutosave) setStatus("Saving…");
+      setSaveStatus('saving', 'Saving…');
+
+      try {
+        const blob = await generateBlobForFormat(format);
+        const mimeType = MIME_TYPES[format];
+        const path = needsNewTarget ? `${currentUser.id}/${crypto.randomUUID()}.${format}` : currentStoragePath;
+
+        const { error: uploadError } = await sb.storage.from(DOCS_BUCKET).upload(path, blob, { upsert: true, contentType: mimeType });
+        if (uploadError) throw uploadError;
+
+        if (needsNewTarget) {
+          const { data, error } = await sb.from('documents').insert({
+            user_id: currentUser.id, title, format, storage_path: path, mime_type: mimeType, size: blob.size
+          }).select().single();
+          if (error) throw error;
+          currentDocId = data.id;
+        } else {
+          const { error } = await sb.from('documents').update({
+            title, storage_path: path, mime_type: mimeType, size: blob.size, updated_at: new Date().toISOString()
+          }).eq('id', currentDocId);
+          if (error) throw error;
+        }
+
+        currentDocName = title;
+        currentFormat = format;
+        currentStoragePath = path;
+        titlebarDoc.textContent = currentDocName;
+        hasUnsavedChanges = false;
+        setSaveStatus('saved', `Saved · ${format.toUpperCase()}`);
+        setStatus(`Saved as ${format.toUpperCase()}`);
+      } catch (err) {
+        alert("Save failed: " + err.message);
+        setSaveStatus('unsaved', 'Save failed');
+        setStatus("Save failed");
+      }
+    }
+
+    // ---------------------------------------------------------------
+    // Open
+    // ---------------------------------------------------------------
+    async function openDocumentPicker() {
+      if (!currentUser) { await requireAuth(); if (!currentUser) return; }
+      pickerList.innerHTML = '<div class="picker-empty">Loading…</div>';
+      pickerOverlay.classList.add('visible');
+
+      const { data, error } = await sb.from('documents').select('id, title, format, storage_path, updated_at').order('updated_at', { ascending: false });
+      if (error) { pickerList.innerHTML = `<div class="picker-empty">Couldn't load documents: ${escapeHtml(error.message)}</div>`; return; }
+      renderPickerList(data || []);
+    }
+
+    function renderPickerList(docs) {
+      if (!docs.length) { pickerList.innerHTML = '<div class="picker-empty">No saved documents yet.</div>'; return; }
+      pickerList.innerHTML = "";
+      docs.forEach(doc => {
+        const row = document.createElement('div');
+        row.className = 'picker-item';
+
+        const info = document.createElement('div');
+        info.className = 'picker-item-info';
+        const titleRow = document.createElement('div');
+        titleRow.className = 'picker-item-title-row';
+        const title = document.createElement('div');
+        title.className = 'picker-item-title';
+        title.textContent = doc.title || "Untitled Document";
+        const badge = document.createElement('span');
+        badge.className = 'format-badge';
+        badge.textContent = doc.format.toUpperCase();
+        titleRow.appendChild(title);
+        titleRow.appendChild(badge);
+        const date = document.createElement('div');
+        date.className = 'picker-item-date';
+        date.textContent = new Date(doc.updated_at).toLocaleString();
+        info.appendChild(titleRow);
+        info.appendChild(date);
+
+        const actions = document.createElement('div');
+        actions.className = 'picker-item-actions';
+
+        const viewBtn = document.createElement('button');
+        viewBtn.className = 'picker-item-view';
+        viewBtn.textContent = '👁';
+        viewBtn.title = 'View';
+        viewBtn.addEventListener('click', (e) => { e.stopPropagation(); openPreview(doc); });
+
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'picker-item-delete';
+        deleteBtn.textContent = '🗑';
+        deleteBtn.title = 'Delete';
+        deleteBtn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          if (!confirm(`Delete "${doc.title}"? This can't be undone.`)) return;
+          const { error: storageErr } = await sb.storage.from(DOCS_BUCKET).remove([doc.storage_path]);
+          if (storageErr) { alert("Delete failed: " + storageErr.message); return; }
+          const { error: dbErr } = await sb.from('documents').delete().eq('id', doc.id);
+          if (dbErr) { alert("Delete failed: " + dbErr.message); return; }
+          if (currentDocId === doc.id) { currentDocId = null; currentStoragePath = null; currentFormat = null; }
+          row.remove();
+          if (!pickerList.children.length) pickerList.innerHTML = '<div class="picker-empty">No saved documents yet.</div>';
+        });
+
+        actions.appendChild(viewBtn);
+        actions.appendChild(deleteBtn);
+        row.appendChild(info);
+        row.appendChild(actions);
+        row.addEventListener('click', () => loadDocument(doc));
+        pickerList.appendChild(row);
+      });
+    }
+
+    async function loadDocument(doc) {
+      setStatus("Loading…");
+      const { data, error } = await sb.storage.from(DOCS_BUCKET).download(doc.storage_path);
+      if (error) { alert("Load failed: " + error.message); setStatus("Load failed"); return; }
+
+      if (doc.format === 'pdf') {
+        const url = URL.createObjectURL(data);
+        const a = document.createElement('a');
+        a.href = url; a.download = (doc.title || "document") + ".pdf"; a.click();
+        URL.revokeObjectURL(url);
+        pickerOverlay.classList.remove('visible');
+        setStatus("PDF downloaded (read-only format)");
+        return;
+      }
+
+      if (doc.format === 'docx') {
+        const arrayBuffer = await data.arrayBuffer();
+        const result = await mammoth.convertToHtml({ arrayBuffer });
+        loadHtmlIntoPages(result.value);
+      } else if (doc.format === 'txt') {
+        const text = await data.text();
+        loadHtmlIntoPages(escapeHtml(text).replace(/\n/g, '<br>'));
+      }
+
+      currentDocId = doc.id;
+      currentDocName = doc.title;
+      currentFormat = doc.format;
+      currentStoragePath = doc.storage_path;
+      titlebarDoc.textContent = currentDocName;
+      hasUnsavedChanges = false;
+      setSaveStatus('saved', `Saved · ${doc.format.toUpperCase()}`);
+      pickerOverlay.classList.remove('visible');
+      setStatus("Document loaded");
+    }
+
+    // ---------------------------------------------------------------
+    // View — read-only preview
+    // ---------------------------------------------------------------
+    async function openPreview(doc) {
+      previewDoc = doc;
+      previewTitle.textContent = doc.title || "Untitled Document";
+      previewMeta.textContent = `${doc.format.toUpperCase()} · last saved ${new Date(doc.updated_at).toLocaleString()}`;
+      previewBody.innerHTML = '<div class="picker-empty">Loading…</div>';
+      previewEditBtn.style.display = doc.format === 'pdf' ? 'none' : 'inline-block';
+      previewOverlay.classList.add('visible');
+
+      const { data, error } = await sb.storage.from(DOCS_BUCKET).download(doc.storage_path);
+      if (error) { previewBody.innerHTML = `<div class="picker-empty">Couldn't load preview: ${escapeHtml(error.message)}</div>`; return; }
+
+      if (doc.format === 'pdf') {
+        revokePreviewUrl();
+        previewObjectUrl = URL.createObjectURL(data);
+        previewBody.innerHTML = `<iframe class="preview-frame" src="${previewObjectUrl}"></iframe>`;
+      } else if (doc.format === 'docx') {
+        const arrayBuffer = await data.arrayBuffer();
+        const result = await mammoth.convertToHtml({ arrayBuffer });
+        const readonly = document.createElement('div');
+        readonly.className = 'preview-readonly';
+        readonly.innerHTML = result.value;
+        previewBody.innerHTML = ""; previewBody.appendChild(readonly);
+      } else {
+        const text = await data.text();
+        const readonly = document.createElement('div');
+        readonly.className = 'preview-readonly';
+        readonly.innerHTML = escapeHtml(text).replace(/\n/g, '<br>');
+        previewBody.innerHTML = ""; previewBody.appendChild(readonly);
+      }
+    }
+
+    function revokePreviewUrl() { if (previewObjectUrl) { URL.revokeObjectURL(previewObjectUrl); previewObjectUrl = null; } }
+    function closePreview() { previewOverlay.classList.remove('visible'); previewBody.innerHTML = ""; revokePreviewUrl(); previewDoc = null; }
+    previewCloseBtn.addEventListener('click', closePreview);
+    previewOverlay.addEventListener('click', (e) => { if (e.target === previewOverlay) closePreview(); });
+    previewEditBtn.addEventListener('click', async () => {
+      if (!previewDoc) return;
+      const doc = previewDoc;
+      closePreview();
+      pickerOverlay.classList.remove('visible');
+      await loadDocument(doc);
+    });
+
+    pickerCloseBtn.addEventListener('click', () => pickerOverlay.classList.remove('visible'));
+    pickerOverlay.addEventListener('click', (e) => { if (e.target === pickerOverlay) pickerOverlay.classList.remove('visible'); });
+
+    async function downloadPdfCopy() {
+      setStatus("Exporting…");
+      const temp = document.createElement('div');
+      temp.style.width = '672px';
+      temp.style.fontFamily = 'Inter, sans-serif';
+      temp.innerHTML = getAllPagesHTML();
+      const opt = { margin: 15, filename: (currentDocName || "SinkOS_Document") + ".pdf", image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2 }, jsPDF: { unit: 'pt', format: 'a4', orientation: 'portrait' } };
+      await html2pdf().from(temp).set(opt).save();
+      setStatus("Downloaded");
+    }
+
+    // ---------------------------------------------------------------
+    // Drag & drop image handling
+    // ---------------------------------------------------------------
+    const hiddenFileInput = document.createElement('input');
+    hiddenFileInput.type = 'file';
+    hiddenFileInput.accept = 'image/*';
+    hiddenFileInput.addEventListener('change', () => { if (hiddenFileInput.files && hiddenFileInput.files[0]) handleImageFile(hiddenFileInput.files[0]); });
+
+    function openImageDropOverlay() { dropOverlay.classList.add('visible'); }
+    function closeImageDropOverlay() { dropOverlay.classList.remove('visible'); }
+    dropBrowseBtn.addEventListener('click', () => hiddenFileInput.click());
+    dropOverlay.addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; });
+    dropOverlay.addEventListener('drop', (e) => {
+      e.preventDefault();
+      const file = e.dataTransfer.files[0];
+      if (file && file.type.startsWith('image/')) handleImageFile(file);
+    });
+    dropOverlay.addEventListener('click', (e) => { if (e.target === dropOverlay) closeImageDropOverlay(); });
+
+    function handleImageFile(file) {
+      const reader = new FileReader();
+      reader.onload = function (e) {
+        ensureEditorFocus();
+        document.execCommand('insertImage', false, e.target.result);
+        schedulePagination();
+        setStatus("Image inserted");
+        closeImageDropOverlay();
+      };
+      reader.readAsDataURL(file);
+    }
+
+    window.addEventListener('dragover', (e) => e.preventDefault());
+    window.addEventListener('drop', (e) => {
+      e.preventDefault();
+      const file = e.dataTransfer.files && e.dataTransfer.files[0];
+      if (file && file.type && file.type.startsWith('image/')) { openImageDropOverlay(); handleImageFile(file); }
+    });
+
+    // ---------------------------------------------------------------
+    // Keyboard shortcuts
+    // ---------------------------------------------------------------
+    document.addEventListener('keydown', (e) => {
+      const mod = e.ctrlKey || e.metaKey;
+      if (mod && e.key.toLowerCase() === 's') { e.preventDefault(); saveDocument(false); }
+      else if (mod && e.key.toLowerCase() === 'o') { e.preventDefault(); openDocumentPicker(); }
+      else if (mod && e.key.toLowerCase() === 'f') { e.preventDefault(); openFindBar(); }
+      else if (mod && e.altKey && e.key.toLowerCase() === 'n') { e.preventDefault(); handleNewDocument(); }
+      else if (e.key === 'Escape' && findBar.classList.contains('open')) { closeFindBar(); }
+    });
+
+    // Warn before leaving with unsaved changes
+    window.addEventListener('beforeunload', (e) => {
+      if (hasUnsavedChanges) { e.preventDefault(); e.returnValue = ''; }
+    });
+
+    // Init
+    updateZoom();
+    updatePageNumbers();
+    bootAuth();
+  </script>
+</body>
+</html>
