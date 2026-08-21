@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Sink OS Boot</title>
+  <link rel="icon" href="favicon.png" type="image/x-icon">
+  <style>
+    body {
+      margin: 0;
+      background-color: rgb(255, 255, 255);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      overflow: hidden;
+      color: rgb(0, 0, 0);
+      font-family: 'Segoe UI', sans-serif;
+    }
+
+    #boot-image, #boot-text {
+      opacity: 0;
+      transition: opacity 2s ease;
+    }
+
+    #boot-image {
+      max-width: 80%;
+      height: auto;
+    }
+
+    h3 {
+      font-style: italic;
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+  <audio id="startupSound" src="Screen Recording 2025-10-27 182052.mp3"></audio>
+  <img src="a modern and minimal.png" alt="Sink OS Boot Image" id="boot-image" />
+  <h3 id="boot-text">Private testing 1 V2</h3>
+
+<script type="module">
+  const image = document.getElementById("boot-image");
+  const text = document.getElementById("boot-text");
+  const sound = document.getElementById("startupSound");
+
+  if (
+    image instanceof HTMLImageElement &&
+    text instanceof HTMLHeadingElement &&
+    sound instanceof HTMLAudioElement
+  ) {
+    // Play startup sound
+    sound.play().catch(() => {
+      document.body.addEventListener("click", () => sound.play(), { once: true });
+    });
+
+// Fade in after 2 seconds
+setTimeout(() => {
+  image.style.opacity = "1";
+  text.style.opacity = "1";
+
+  // Fade out after 3 seconds of visibility
+  setTimeout(() => {
+    image.style.opacity = "0";
+    text.style.opacity = "0";
+
+    // Redirect after fade-out completes (2s transition)
+    setTimeout(() => {
+      window.location.href = "lockscreen.html";
+    }, 2000); // Wait for fade-out transition to finish
+  }, 3000);
+}, 2000);
+  } else {
+    console.error("One or more elements failed to load or are of the wrong type.");
+  }
+</script>
+</body>
+</html>
