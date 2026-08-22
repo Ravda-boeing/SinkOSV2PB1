@@ -31,7 +31,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
                 // Redirect after fade-out
                 setTimeout(() => {
-                    window.location.href = "lockscreen.html";
+                    window.location.href = "https://ravda-boeing.github.io/lockscreen.html";
                 }, 2000);
 
             }, 9000);
