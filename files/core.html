@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Core — SinkOS Files</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- Inline auth gate: shown before the app while we figure out session state -->
+  <div class="core-auth-gate" id="core-auth-gate" style="display:none;">
+    <div class="core-auth-card">
+      <div class="core-auth-wordmark">Files</div>
+
+      <!-- Existing session, needs OS password -->
+      <div id="core-auth-unlock" style="display:none;">
+        <p class="core-auth-label">Enter your OS password to unlock</p>
+        <input type="password" id="core-auth-pw" class="core-auth-input" placeholder="OS password" autocomplete="current-password" />
+        <button id="core-auth-unlock-btn" class="core-auth-btn">Unlock</button>
+        <p class="core-auth-error" id="core-auth-error"></p>
+      </div>
+
+      <!-- No session yet -->
+      <div id="core-auth-signin" style="display:none;">
+        <p class="core-auth-label">Sign in to continue</p>
+        <input type="email" id="core-auth-email" class="core-auth-input" placeholder="Email" autocomplete="email" />
+        <input type="password" id="core-auth-password" class="core-auth-input" placeholder="Password" autocomplete="current-password" />
+        <button id="core-auth-signin-btn" class="core-auth-btn">Sign in</button>
+        <p class="core-auth-error" id="core-auth-error2"></p>
+      </div>
+
+      <div id="core-auth-checking" class="core-auth-label">Checking session…</div>
+    </div>
+  </div>
+
+  <div class="core-app" id="core-app" style="display:none;">
+    <header class="core-topbar">
+      <div class="core-wordmark">Files</div>
+      <div class="core-path" id="core-path"></div>
+      <div class="core-controls">
+        <input class="core-search" id="core-search" placeholder="Search this layer…" />
+        <button class="core-new-folder-btn" id="core-new-folder-btn" title="New folder">+ Folder</button>
+        <button class="core-new-folder-btn" id="core-hidden-toggle" title="Show items starting with _">Show hidden</button>
+        <button class="core-view-toggle" id="core-view-toggle" title="Toggle view">⊞</button>
+        <button class="core-new-folder-btn" id="core-signout-btn" title="Sign out">Sign out</button>
+      </div>
+    </header>
+
+    <div class="core-body">
+      <nav class="core-core" id="core-core" aria-label="Folder depth"></nav>
+      <main class="core-stage" id="core-stage">
+        <div class="core-loading">Loading…</div>
+      </main>
+    </div>
+  </div>
+
+  <!-- Supabase JS client (browser build) -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="core.js"></script>
+</body>
+</html>
