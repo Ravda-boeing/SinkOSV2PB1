@@ -1,0 +1,374 @@
+:root {
+    --void: #0b0f1e;
+    --stone: #131a2c;
+    --stone-2: #1a2338;
+    --patina: #4f7feb;
+    --ember: #4f7feb;
+    --violet: #9b7cf5;
+    --rose: #9b7cf5;
+    --bone: #dce6ff;
+    --ash: #6e7ba6;
+    --border: rgba(143, 180, 255, 0.14);
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: var(--void);
+    color: var(--bone);
+    font-family: "IBM Plex Sans", -apple-system, sans-serif;
+  }
+
+  .core-app {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    width: 100vw;
+    overflow: hidden;
+  }
+
+  /* ---------- Topbar ---------- */
+
+  .core-topbar {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent);
+    flex-shrink: 0;
+  }
+
+  .core-wordmark {
+    font-family: "Fraunces", serif;
+    font-weight: 600;
+    font-size: 19px;
+    letter-spacing: 0.05em;
+    color: var(--bone);
+    flex-shrink: 0;
+  }
+
+  .core-path {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+    color: var(--ash);
+    letter-spacing: 0.03em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .core-controls {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+  }
+
+  .core-search {
+    background: var(--stone);
+    border: 1px solid var(--border);
+    color: var(--bone);
+    border-radius: 7px;
+    padding: 7px 11px;
+    font-size: 13px;
+    font-family: "IBM Plex Sans", sans-serif;
+    width: 200px;
+  }
+  .core-search::placeholder { color: var(--ash); }
+  .core-search:focus-visible { outline: 2px solid var(--patina); outline-offset: 1px; }
+
+  .core-view-toggle {
+    background: var(--stone);
+    border: 1px solid var(--border);
+    color: var(--ash);
+    width: 32px;
+    height: 32px;
+    border-radius: 7px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: color 0.15s ease, border-color 0.15s ease;
+  }
+  .core-view-toggle:hover { color: var(--bone); border-color: var(--patina); }
+  .core-view-toggle:focus-visible { outline: 2px solid var(--patina); outline-offset: 1px; }
+
+  /* ---------- Body layout ---------- */
+
+  .core-body {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+  }
+
+  /* The core sample: a compressed cross-section of every ancestor folder,
+     read top-to-bottom like sediment layers. The current (deepest) layer
+     breaks open into the main stage via a jagged fracture edge. */
+  .core-core {
+    width: 104px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--void);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+  }
+
+  .core-band {
+    flex: 1 0 84px;
+    min-height: 84px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    background:
+      repeating-linear-gradient(0deg, var(--stone), var(--stone) 6px, rgba(255,255,255,0.015) 6px, rgba(255,255,255,0.015) 7px);
+    border-bottom: 1px solid var(--border);
+    transition: background-color 0.15s ease;
+  }
+  .core-band:hover { background-color: var(--stone-2); }
+  .core-band:focus-visible { outline: 2px solid var(--patina); outline-offset: -2px; }
+
+  .core-band-label {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+    letter-spacing: 0.03em;
+    color: var(--ash);
+    text-transform: uppercase;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 88px;
+    padding: 0 8px;
+  }
+
+  .core-band-current {
+    background: linear-gradient(160deg, var(--patina), var(--violet));
+    flex-basis: 120px;
+    z-index: 2;
+    border-radius: 0 14px 14px 0;
+    box-shadow: 6px 0 24px -4px rgba(79, 127, 235, 0.55);
+  }
+  .core-band-current .core-band-label { color: var(--void); font-weight: 600; }
+  .core-band-current:hover { background: linear-gradient(160deg, #6f9cf5, var(--violet)); }
+
+  .core-stage {
+    flex: 1;
+    min-width: 0;
+    overflow-y: auto;
+    padding: 22px 28px;
+    box-shadow: inset 14px 0 26px -20px var(--ember);
+    background-image:
+      linear-gradient(rgba(143, 180, 255, 0.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(143, 180, 255, 0.05) 1px, transparent 1px);
+    background-size: 32px 32px;
+  }
+  .core-stage::-webkit-scrollbar { width: 8px; }
+  .core-stage::-webkit-scrollbar-thumb { background: var(--stone-2); border-radius: 4px; }
+
+  .core-grid-view {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+    gap: 14px;
+    align-content: start;
+  }
+
+  .core-card {
+    background: var(--stone);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--card-accent, var(--patina));
+    border-radius: 8px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    cursor: pointer;
+    transition: transform 0.12s ease, background 0.12s ease;
+  }
+  .core-card:hover { background: var(--stone-2); transform: translateY(-2px); }
+  .core-card:focus-visible { outline: 2px solid var(--patina); outline-offset: 1px; }
+  .core-card-icon { color: var(--card-accent, var(--patina)); line-height: 0; }
+  .core-card-name { font-size: 13.5px; font-weight: 500; color: var(--bone); word-break: break-word; }
+  .core-card-sub { font-family: "IBM Plex Mono", monospace; font-size: 10.5px; color: var(--ash); letter-spacing: 0.02em; }
+
+  .core-cat-folder  { --card-accent: var(--patina); }
+  .core-cat-code    { --card-accent: var(--patina); }
+  .core-cat-doc     { --card-accent: var(--ash); }
+  .core-cat-image   { --card-accent: var(--ember); }
+  .core-cat-media   { --card-accent: var(--rose); }
+  .core-cat-sheet   { --card-accent: var(--ember); }
+  .core-cat-archive { --card-accent: var(--ash); }
+  .core-cat-file    { --card-accent: var(--ash); }
+
+  .core-list-view { display: flex; flex-direction: column; gap: 3px; }
+  .core-list-view .core-card {
+    flex-direction: row;
+    align-items: center;
+    border-radius: 6px;
+    padding: 9px 14px;
+  }
+  .core-list-view .core-card-meta { display: flex; flex-direction: row; align-items: center; gap: 14px; flex: 1; }
+  .core-list-view .core-card-sub { margin-left: auto; }
+
+  .core-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--ash);
+    gap: 10px;
+    text-align: center;
+  }
+  .core-empty-title { font-family: "Fraunces", serif; font-size: 16px; color: var(--bone); margin: 0; }
+  .core-empty-sub { font-size: 12.5px; color: var(--ash); margin: 0; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .core-card, .core-band { transition: none; }
+  }
+
+
+/* ---------- Additions for the real app (folder creation, delete, loading) ---------- */
+
+.core-new-folder-btn {
+  background: var(--stone);
+  border: 1px solid var(--border);
+  color: var(--ash);
+  border-radius: 7px;
+  padding: 7px 12px;
+  font-size: 12px;
+  font-family: "IBM Plex Sans", sans-serif;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease;
+  white-space: nowrap;
+}
+.core-new-folder-btn:hover { color: var(--bone); border-color: var(--patina); }
+.core-new-folder-btn:focus-visible { outline: 2px solid var(--patina); outline-offset: 1px; }
+
+.core-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--ash);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 12px;
+}
+
+.core-card {
+  position: relative;
+}
+
+.core-card-delete {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  border: none;
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--ash);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease;
+}
+.core-card:hover .core-card-delete { opacity: 1; }
+.core-card-delete:hover { color: #fff; background: rgba(181, 100, 107, 0.55); }
+
+.core-list-view .core-card-delete {
+  position: static;
+  margin-left: 8px;
+  opacity: 0;
+}
+.core-list-view .core-card:hover .core-card-delete { opacity: 1; }
+
+.core-toggle-active {
+  color: var(--bone) !important;
+  border-color: var(--patina) !important;
+  background: var(--stone-2) !important;
+}
+
+/* ---------- Inline auth gate ---------- */
+
+.core-auth-gate {
+  height: 100vh;
+  width: 100vw;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--void);
+  background-image:
+    linear-gradient(rgba(143, 180, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(143, 180, 255, 0.05) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+.core-auth-card {
+  width: 300px;
+  background: var(--stone);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 28px 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: 0 20px 60px -20px rgba(0, 0, 0, 0.6);
+}
+
+.core-auth-wordmark {
+  font-family: "Fraunces", serif;
+  font-weight: 600;
+  font-size: 19px;
+  letter-spacing: 0.05em;
+  color: var(--bone);
+  margin-bottom: 6px;
+}
+
+.core-auth-label {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11.5px;
+  color: var(--ash);
+  letter-spacing: 0.02em;
+  text-align: center;
+}
+
+.core-auth-input {
+  background: var(--stone-2);
+  border: 1px solid var(--border);
+  color: var(--bone);
+  border-radius: 7px;
+  padding: 9px 11px;
+  font-size: 13px;
+  font-family: "IBM Plex Sans", sans-serif;
+  width: 100%;
+}
+.core-auth-input::placeholder { color: var(--ash); }
+.core-auth-input:focus-visible { outline: 2px solid var(--patina); outline-offset: 1px; }
+
+.core-auth-btn {
+  background: linear-gradient(160deg, var(--patina), var(--violet));
+  border: none;
+  color: var(--void);
+  font-weight: 600;
+  border-radius: 7px;
+  padding: 9px 11px;
+  font-size: 13px;
+  font-family: "IBM Plex Sans", sans-serif;
+  cursor: pointer;
+  transition: filter 0.15s ease;
+}
+.core-auth-btn:hover { filter: brightness(1.08); }
+.core-auth-btn:focus-visible { outline: 2px solid var(--patina); outline-offset: 1px; }
+
+.core-auth-error {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  color: #e88a92;
+  min-height: 14px;
+  margin: 0;
+}
