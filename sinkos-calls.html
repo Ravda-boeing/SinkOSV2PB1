@@ -197,13 +197,42 @@ const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-const ICE_SERVERS = {
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' }
-  ]
-};
+const TURN_FUNCTION_URL = SUPABASE_URL + '/functions/v1/turn-credentials';
+
+// Always included regardless of whether the TURN fetch succeeds — STUN is
+// free/unlimited and covers the common case where a direct peer-to-peer
+// path exists. TURN (fetched per-call below) is the fallback for
+// restrictive NATs where no direct path is possible.
+const FALLBACK_STUN_SERVERS = [
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:stun1.l.google.com:19302' },
+  { urls: 'stun:stun2.l.google.com:19302' }
+];
+
+// Fetches short-lived TURN credentials for the current call from our Edge
+// Function (which keeps the Metered secret key server-side). Falls back to
+// STUN-only if the fetch fails for any reason — degraded NAT traversal is
+// better than the call refusing to start at all.
+async function getIceServers() {
+  try {
+    const { data: { session } } = await sb.auth.getSession();
+    if (!session) return { iceServers: FALLBACK_STUN_SERVERS };
+
+    const res = await fetch(TURN_FUNCTION_URL, {
+      headers: { Authorization: 'Bearer ' + session.access_token }
+    });
+    if (!res.ok) {
+      console.error('TURN credential fetch failed:', res.status, await res.text());
+      return { iceServers: FALLBACK_STUN_SERVERS };
+    }
+    const data = await res.json();
+    const turnServers = Array.isArray(data.iceServers) ? data.iceServers : [];
+    return { iceServers: FALLBACK_STUN_SERVERS.concat(turnServers) };
+  } catch (e) {
+    console.error('getIceServers error:', e);
+    return { iceServers: FALLBACK_STUN_SERVERS };
+  }
+}
 
 // ---------- Theme ----------
 document.documentElement.setAttribute('data-theme', localStorage.getItem('sinkos-chat-theme') || 'dark');
@@ -353,8 +382,9 @@ async function getMedia() {
 }
 
 // ---------- Peer connection helper ----------
-function createPC() {
-  pc = new RTCPeerConnection(ICE_SERVERS);
+async function createPC() {
+  const iceConfig = await getIceServers();
+  pc = new RTCPeerConnection(iceConfig);
 
   localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
 
@@ -450,7 +480,7 @@ async function startAsCaller() {
   if (!await getMedia()) return;
   if (callType === 'video') localVideo.srcObject = localStream;
 
-  createPC();
+  await createPC();
 
   // Subscribe BEFORE sending the offer, so we can't miss a fast answer/ICE
   // candidate that the receiver sends back moments later.
@@ -472,7 +502,7 @@ async function startAsReceiver() {
   if (!await getMedia()) return;
   if (callType === 'video') localVideo.srcObject = localStream;
 
-  createPC();
+  await createPC();
 
   // Subscribe first so anything sent from this point on is caught live.
   subscribeToSignals();
