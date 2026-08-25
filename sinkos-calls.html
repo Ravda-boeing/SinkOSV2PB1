@@ -234,6 +234,17 @@ let camOff       = false;
 let callTimer    = null;
 let callSeconds  = 0;
 
+// Signaling race-condition guards (see handleSignal / flushIceQueue below):
+// - processedSignalIds: dedupe signals seen both via realtime and via the
+//   backfill query, since both paths can observe the same row.
+// - iceQueue: ICE candidates that arrive before we have a remote description
+//   set get buffered here, then flushed once it's set (addIceCandidate
+//   before setRemoteDescription is unreliable across browsers).
+// - remoteDescSet: tracks whether pc.setRemoteDescription has completed.
+let processedSignalIds = new Set();
+let iceQueue     = [];
+let remoteDescSet = false;
+
 // ---------- DOM ----------
 const authScreen  = document.getElementById('authScreen');
 const idleScreen  = document.getElementById('idleScreen');
@@ -376,6 +387,58 @@ function createPC() {
   };
 }
 
+// ---------- Unified signal handler ----------
+// Used both by the live realtime subscription and by the one-time backfill
+// query, so every signal — whenever it's actually observed — goes through
+// the exact same logic and is applied exactly once.
+async function handleSignal(sig) {
+  if (!sig || processedSignalIds.has(sig.id)) return;
+  processedSignalIds.add(sig.id);
+
+  if (sig.type === 'offer') {
+    if (!pc) return;
+    await pc.setRemoteDescription(new RTCSessionDescription(sig.payload.sdp));
+    remoteDescSet = true;
+    await flushIceQueue();
+    return;
+  }
+
+  if (sig.type === 'answer') {
+    if (pc && pc.signalingState !== 'stable') {
+      try {
+        await pc.setRemoteDescription(new RTCSessionDescription(sig.payload.sdp));
+        remoteDescSet = true;
+        await flushIceQueue();
+      } catch (e) { console.error('setRemoteDesc error:', e); }
+    }
+    return;
+  }
+
+  if (sig.type === 'ice' && sig.payload?.candidate) {
+    if (!pc) return;
+    if (!remoteDescSet) {
+      // Remote description isn't set yet — queue it rather than dropping it
+      // or risking addIceCandidate() throwing before the peer connection is ready.
+      iceQueue.push(sig.payload.candidate);
+    } else {
+      try { await pc.addIceCandidate(new RTCIceCandidate(sig.payload.candidate)); } catch (e) {}
+    }
+    return;
+  }
+
+  if (sig.type === 'hangup' || sig.type === 'reject') {
+    cleanup();
+    showEnded('Call ended', 'The other person ended the call.');
+  }
+}
+
+async function flushIceQueue() {
+  const queued = iceQueue.splice(0);
+  for (const candidate of queued) {
+    try { await pc.addIceCandidate(new RTCIceCandidate(candidate)); } catch (e) {}
+  }
+}
+
 // ---------- Caller flow ----------
 async function startAsCaller() {
   callId = generateCallId();
@@ -389,11 +452,13 @@ async function startAsCaller() {
 
   createPC();
 
+  // Subscribe BEFORE sending the offer, so we can't miss a fast answer/ICE
+  // candidate that the receiver sends back moments later.
+  subscribeToSignals();
+
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
   await sendSignal('offer', { sdp: { type: offer.type, sdp: offer.sdp } });
-
-  subscribeToSignals();
 }
 
 // ---------- Receiver flow ----------
@@ -409,27 +474,38 @@ async function startAsReceiver() {
 
   createPC();
 
-  // Fetch the existing offer
-  const { data: offerSig, error } = await sb
+  // Subscribe first so anything sent from this point on is caught live.
+  subscribeToSignals();
+
+  // Backfill: the caller started trickling ICE candidates the moment they
+  // sent the offer, well before we opened this page and subscribed above.
+  // Realtime only pushes NEW inserts to an active subscription — it never
+  // replays history — so without this fetch, every candidate sent during
+  // the "ringing" window would be silently lost and the call would hang on
+  // "Connecting" forever. processedSignalIds dedupes any overlap with the
+  // live subscription above.
+  const { data: backlog, error } = await sb
     .from('call_signals')
     .select('*')
     .eq('call_id', callId)
-    .eq('type', 'offer')
-    .order('created_at', { ascending: true })
-    .limit(1)
-    .single();
+    .eq('to_id', currentUser.id)
+    .order('created_at', { ascending: true });
 
+  const offerSig = (backlog || []).find(s => s.type === 'offer');
   if (error || !offerSig) {
     showEnded('Call not found', 'The call may have ended already.');
     return;
   }
 
-  await pc.setRemoteDescription(new RTCSessionDescription(offerSig.payload.sdp));
+  await handleSignal(offerSig);
+
   const answer = await pc.createAnswer();
   await pc.setLocalDescription(answer);
   await sendSignal('answer', { sdp: { type: answer.type, sdp: answer.sdp } });
 
-  subscribeToSignals();
+  for (const sig of backlog) {
+    if (sig.type === 'ice') await handleSignal(sig);
+  }
 }
 
 // ---------- Signal subscription ----------
@@ -440,26 +516,10 @@ function subscribeToSignals() {
     .on('postgres_changes', {
       event: 'INSERT', schema: 'public', table: 'call_signals',
       filter: 'to_id=eq.' + currentUser.id
-    }, async (payload) => {
+    }, (payload) => {
       const sig = payload.new;
       if (sig.call_id !== callId) return;
-
-      if (sig.type === 'answer' && pc && pc.signalingState !== 'stable') {
-        try {
-          await pc.setRemoteDescription(new RTCSessionDescription(sig.payload.sdp));
-        } catch(e) { console.error('setRemoteDesc error:', e); }
-      }
-
-      if (sig.type === 'ice' && pc && sig.payload?.candidate) {
-        try {
-          await pc.addIceCandidate(new RTCIceCandidate(sig.payload.candidate));
-        } catch(e) {}
-      }
-
-      if (sig.type === 'hangup' || sig.type === 'reject') {
-        cleanup();
-        showEnded('Call ended', 'The other person ended the call.');
-      }
+      handleSignal(sig);
     })
     .subscribe();
 }
@@ -539,6 +599,9 @@ function cleanup() {
   if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
   if (remoteAudio) { remoteAudio.pause(); remoteAudio = null; }
   if (signalCh) { sb.removeChannel(signalCh); signalCh = null; }
+  processedSignalIds = new Set();
+  iceQueue = [];
+  remoteDescSet = false;
 }
 
 // ---------- Utility ----------
