@@ -522,10 +522,21 @@ async function uploadPendingAttachment(convId) {
 const signedUrlCache = new Map();
 async function getSignedUrl(path) {
   if (signedUrlCache.has(path)) return signedUrlCache.get(path);
-  const { data, error } = await sb.storage.from(ATTACHMENTS_BUCKET).createSignedUrl(path, 3600);
-  if (error || !data) return null;
-  signedUrlCache.set(path, data.signedUrl);
-  return data.signedUrl;
+  try {
+    const { data, error } = await sb.storage.from(ATTACHMENTS_BUCKET).createSignedUrl(path, 3600);
+    if (error || !data) {
+      console.error('createSignedUrl error:', error);
+      return null;
+    }
+    signedUrlCache.set(path, data.signedUrl);
+    return data.signedUrl;
+  } catch (err) {
+    // Network-level failures throw here rather than resolving with an
+    // `error` field — catch them so callers always get a clean null
+    // instead of an unhandled rejection that leaves the UI stuck.
+    console.error('getSignedUrl threw:', err);
+    return null;
+  }
 }
 
 // ---------- Incoming call notification ----------
@@ -924,15 +935,7 @@ function renderAttachment(el, msg) {
   const isImage = (msg.attachment_type || '').startsWith('image/');
 
   if (isImage) {
-    const img = document.createElement('img');
-    img.className = 'attachImg';
-    img.alt = msg.attachment_name || 'attachment';
-    el.appendChild(img);
-    getSignedUrl(msg.attachment_url).then(url => {
-      if (!url) { img.replaceWith(fallbackAttachChip(msg)); return; }
-      img.src = url;
-      img.addEventListener('click', () => window.open(url, '_blank'));
-    });
+    renderImageAttachment(el, msg);
     return;
   }
 
@@ -941,10 +944,47 @@ function renderAttachment(el, msg) {
   loadingEl.textContent = `📎 ${msg.attachment_name || 'file'}`;
   el.appendChild(loadingEl);
 
-  getSignedUrl(msg.attachment_url).then(url => {
-    if (!url) return;
-    loadingEl.replaceWith(buildAttachFileLink(msg, url));
-  });
+  getSignedUrl(msg.attachment_url)
+    .then(url => {
+      if (!url) { loadingEl.replaceWith(fallbackAttachChip(msg, el)); return; }
+      loadingEl.replaceWith(buildAttachFileLink(msg, url));
+    })
+    .catch(err => {
+      console.error('attachment signed URL error:', err);
+      loadingEl.replaceWith(fallbackAttachChip(msg, el));
+    });
+}
+
+// Renders an image attachment defensively: always ends in a visible state
+// (loaded photo, or a clickable "couldn't load — retry" chip) — never a
+// silently empty <img> with no src and no visible indication anything
+// went wrong.
+function renderImageAttachment(el, msg) {
+  const loadingEl = document.createElement('div');
+  loadingEl.className = 'attachLoading';
+  loadingEl.textContent = `🖼️ ${msg.attachment_name || 'photo'} loading...`;
+  el.appendChild(loadingEl);
+
+  getSignedUrl(msg.attachment_url)
+    .then(url => {
+      if (!url) { loadingEl.replaceWith(fallbackAttachChip(msg, el, true)); return; }
+      const img = document.createElement('img');
+      img.className = 'attachImg';
+      img.alt = msg.attachment_name || 'attachment';
+      img.addEventListener('click', () => window.open(url, '_blank'));
+      // If the URL itself loaded but the image data fails to decode/fetch
+      // (expired signed URL, CDN hiccup, etc.), swap to the retry chip
+      // instead of leaving a broken img icon.
+      img.addEventListener('error', () => {
+        img.replaceWith(fallbackAttachChip(msg, el, true));
+      }, { once: true });
+      img.src = url;
+      loadingEl.replaceWith(img);
+    })
+    .catch(err => {
+      console.error('attachment signed URL error:', err);
+      loadingEl.replaceWith(fallbackAttachChip(msg, el, true));
+    });
 }
 
 function attachIconFor(name) {
@@ -952,11 +992,25 @@ function attachIconFor(name) {
   return rule?.icon || '📎';
 }
 
-function fallbackAttachChip(msg) {
-  const span = document.createElement('div');
-  span.className = 'attachLoading';
-  span.textContent = `📎 ${msg.attachment_name || 'file'} (unavailable)`;
-  return span;
+// Always-visible failure state, with a retry that re-runs the render logic
+// in place — so a transient failure is recoverable without reloading the
+// whole conversation.
+function fallbackAttachChip(msg, el, isImage) {
+  const chip = document.createElement('div');
+  chip.className = 'attachLoading';
+  chip.style.cursor = 'pointer';
+  chip.style.textDecoration = 'underline';
+  chip.textContent = `⚠️ Couldn't load ${isImage ? 'photo' : 'file'} "${msg.attachment_name || ''}" — tap to retry`;
+  chip.addEventListener('click', () => {
+    signedUrlCache.delete(msg.attachment_url);
+    if (isImage) {
+      renderImageAttachment(el, msg);
+    } else {
+      renderAttachment(el, msg);
+    }
+    chip.remove();
+  }, { once: true });
+  return chip;
 }
 
 function buildAttachFileLink(msg, url) {
