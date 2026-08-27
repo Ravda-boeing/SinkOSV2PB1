@@ -349,6 +349,15 @@ function formatBytes(bytes) {
   if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
   return (bytes / (1024 * 1024)).toFixed(1) + " MB";
 }
+// Escapes any user-controlled string (usernames, filenames) before it's
+// interpolated into an innerHTML template literal, so a crafted username
+// or attachment filename (e.g. containing "<img onerror=...>") can't
+// execute as markup in another user's session.
+function escapeHtml(str) {
+  return String(str ?? "").replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  }[c]));
+}
 
 // ---------- Theme ----------
 const root = document.documentElement;
@@ -749,9 +758,9 @@ function renderFriends() {
     const item = document.createElement('div');
     item.className = 'rowItem' + (f.id === activeFriendId ? ' active' : '');
     item.innerHTML = `
-      <div class="avatar">${initials(f.username)}<span class="presenceDot ${online ? 'online' : ''}"></span></div>
+      <div class="avatar">${escapeHtml(initials(f.username))}<span class="presenceDot ${online ? 'online' : ''}"></span></div>
       <div class="rowText">
-        <div class="name">@${f.username}</div>
+        <div class="name">@${escapeHtml(f.username)}</div>
         <div class="preview">${online ? 'Online' : 'Offline'}</div>
       </div>`;
     item.addEventListener('click', () => openChatWithFriend(f));
@@ -771,8 +780,8 @@ function renderRequests() {
       const item = document.createElement('div');
       item.className = 'rowItem';
       item.innerHTML = `
-        <div class="avatar">${initials(r.username)}</div>
-        <div class="rowText"><div class="name">@${r.username}</div></div>
+        <div class="avatar">${escapeHtml(initials(r.username))}</div>
+        <div class="rowText"><div class="name">@${escapeHtml(r.username)}</div></div>
         <div class="reqActions">
           <button class="btnAccept">Accept</button>
           <button class="btnDecline">Decline</button>
@@ -791,8 +800,8 @@ function renderRequests() {
       const item = document.createElement('div');
       item.className = 'rowItem';
       item.innerHTML = `
-        <div class="avatar">${initials(r.username)}</div>
-        <div class="rowText"><div class="name">@${r.username}</div></div>
+        <div class="avatar">${escapeHtml(initials(r.username))}</div>
+        <div class="rowText"><div class="name">@${escapeHtml(r.username)}</div></div>
         <div class="pendingTag">Pending</div>`;
       outgoingList.appendChild(item);
     });
@@ -868,12 +877,12 @@ function renderChats() {
   if (conversations.length === 0) { panelChats.innerHTML = '<div class="rowMuted">No chats yet. Add a friend to get started.</div>'; return; }
   conversations.forEach(conv => {
     const other = conv.otherUser;
-    const name = other ? '@' + other.username : 'Conversation';
+    const name = other ? '@' + escapeHtml(other.username) : 'Conversation';
     const online = other ? onlineUserIds.has(other.id) : false;
     const item = document.createElement('div');
     item.className = 'rowItem' + (conv.id === activeConversationId ? ' active' : '');
     item.innerHTML = `
-      <div class="avatar">${initials(other ? other.username : '?')}<span class="presenceDot ${online ? 'online' : ''}"></span></div>
+      <div class="avatar">${escapeHtml(initials(other ? other.username : '?'))}<span class="presenceDot ${online ? 'online' : ''}"></span></div>
       <div class="rowText"><div class="name">${name}</div><div class="preview">${online ? 'Online' : 'Offline'}</div></div>`;
     item.addEventListener('click', () => openConversation(conv.id, other));
     panelChats.appendChild(item);
@@ -1048,7 +1057,7 @@ function buildAttachFileLink(msg, url) {
   a.innerHTML = `
     <div class="attachIcon">${attachIconFor(msg.attachment_name)}</div>
     <div class="attachInfo">
-      <div class="attachName">${msg.attachment_name || 'file'}</div>
+      <div class="attachName">${escapeHtml(msg.attachment_name || 'file')}</div>
       <div class="attachSize">${formatBytes(msg.attachment_size)}</div>
     </div>`;
   return a;
