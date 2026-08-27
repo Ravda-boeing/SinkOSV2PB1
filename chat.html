@@ -601,7 +601,7 @@ function setupCallSignalListener() {
     }, async (payload) => {
       const sig = payload.new;
       if (sig.type !== 'offer') return;
-      const { data: callerProfile } = await sb.from('profiles').select('username').eq('id', sig.from_id).single();
+      const { data: callerProfile } = await sb.from('profiles_public').select('username').eq('id', sig.from_id).single();
       const callerName = callerProfile?.username || 'Someone';
       sig.callerName = callerName;
       showCallNotif(sig, callerName);
@@ -641,7 +641,7 @@ function subscribeToMessages(convId) {
   messageChannel
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, async (payload) => {
       if (payload.new.conversation_id !== convId) return;
-      const { data: profile } = await sb.from('profiles').select('username').eq('id', payload.new.sender_id).single();
+      const { data: profile } = await sb.from('profiles_public').select('username').eq('id', payload.new.sender_id).single();
       renderMessage({ ...payload.new, profiles: profile });
       messagesEl.scrollTop = messagesEl.scrollHeight;
     })
@@ -701,11 +701,28 @@ signOutBtn.addEventListener('click', async () => { await sb.auth.signOut(); });
 async function loadFriendsAndRequests() {
   const { data: rows, error } = await sb
     .from('friend_requests')
-    .select('*, sender:sender_id(id, username), receiver:receiver_id(id, username)')
+    .select('*')
     .or('sender_id.eq.' + currentUser.id + ',receiver_id.eq.' + currentUser.id);
   if (error) { console.error('loadFriendsAndRequests error:', error); return; }
 
   const all = rows || [];
+  const otherIds = Array.from(new Set(
+    all.flatMap(r => [r.sender_id, r.receiver_id]).filter(id => id !== currentUser.id)
+  ));
+  let profileMap = {};
+  if (otherIds.length > 0) {
+    const { data: profs } = await sb.from('profiles_public').select('id, username').in('id', otherIds);
+    (profs || []).forEach(p => { profileMap[p.id] = p; });
+  }
+  all.forEach(r => {
+    r.sender = r.sender_id === currentUser.id
+      ? { id: currentUser.id, username: currentProfile?.username }
+      : profileMap[r.sender_id];
+    r.receiver = r.receiver_id === currentUser.id
+      ? { id: currentUser.id, username: currentProfile?.username }
+      : profileMap[r.receiver_id];
+  });
+
   const seenFriends = new Set();
   friends = [];
   all.filter(r => r.status === 'accepted').forEach(r => {
@@ -789,7 +806,7 @@ async function sendFriendRequest() {
   const username = addFriendInput.value.trim();
   addFriendMsg.className = ''; addFriendMsg.textContent = '';
   if (!username) { addFriendMsg.className = 'error'; addFriendMsg.textContent = 'Enter a username.'; return; }
-  const { data: target, error: lookupErr } = await sb.from('profiles').select('id, username').eq('username', username).single();
+  const { data: target, error: lookupErr } = await sb.from('profiles_public').select('id, username').eq('username', username).single();
   if (lookupErr || !target) { addFriendMsg.className = 'error'; addFriendMsg.textContent = 'No user found.'; return; }
   if (target.id === currentUser.id) { addFriendMsg.className = 'error'; addFriendMsg.textContent = "That's you."; return; }
   if (friends.some(f => f.id === target.id)) { addFriendMsg.className = 'error'; addFriendMsg.textContent = 'Already friends.'; return; }
@@ -836,7 +853,7 @@ async function loadConversations() {
     const { data: allParts } = await sb.from('conversation_participants').select('user_id').eq('conversation_id', conv.id);
     const otherPart = (allParts || []).find(p => p.user_id !== currentUser.id);
     if (otherPart) {
-      const { data: profile } = await sb.from('profiles').select('id, username').eq('id', otherPart.user_id).single();
+      const { data: profile } = await sb.from('profiles_public').select('id, username').eq('id', otherPart.user_id).single();
       return { ...conv, otherUser: profile };
     }
     return { ...conv, otherUser: null };
@@ -898,10 +915,18 @@ async function openConversation(convId, other) {
 
 // ---------- Messages ----------
 async function loadMessages(convId) {
-  const { data: msgs, error } = await sb.from('messages').select('*, profiles(username)').eq('conversation_id', convId).order('created_at', { ascending: true });
+  const { data: msgs, error } = await sb.from('messages').select('*').eq('conversation_id', convId).order('created_at', { ascending: true });
   if (error) { console.error('loadMessages error:', error); return; }
+
+  const senderIds = Array.from(new Set((msgs || []).map(m => m.sender_id)));
+  let profileMap = {};
+  if (senderIds.length > 0) {
+    const { data: profs } = await sb.from('profiles_public').select('id, username').in('id', senderIds);
+    (profs || []).forEach(p => { profileMap[p.id] = { username: p.username }; });
+  }
+
   messagesEl.innerHTML = '';
-  (msgs || []).forEach(renderMessage);
+  (msgs || []).forEach(m => renderMessage({ ...m, profiles: profileMap[m.sender_id] }));
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
