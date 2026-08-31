@@ -839,14 +839,11 @@ async function respondToRequest(requestId, status, otherUserId) {
 async function ensureConversationWith(otherUserId) {
   const existing = conversations.find(c => c.otherUser && c.otherUser.id === otherUserId);
   if (existing) return existing.id;
-  const { data: newConv, error: convError } = await sb.from('conversations').insert({ is_group: false, created_by: currentUser.id }).select().single();
-  if (convError) { console.error('create conv error:', convError); return null; }
-  const { error: partError } = await sb.from('conversation_participants').insert([
-    { conversation_id: newConv.id, user_id: currentUser.id },
-    { conversation_id: newConv.id, user_id: otherUserId }
-  ]);
-  if (partError) { console.error('participants error:', partError); return null; }
-  return newConv.id;
+  const { data: newConvId, error: rpcError } = await sb.rpc('create_conversation_with_participants', {
+    participant_ids: [otherUserId]
+  });
+  if (rpcError) { console.error('create conversation error:', rpcError); return null; }
+  return newConvId;
 }
 
 async function loadConversations() {
