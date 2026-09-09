@@ -559,7 +559,7 @@ const E2EE = (() => {
       const wrapped = await wrapKeyFor(convKey, p.public_key);
       rows.push({ conversation_id: conversationId, user_id: p.id, ...wrapped });
     }
-    if (rows.length) await sb.from('conversation_keys').insert(rows);
+    if (rows.length) await sb.from('conversation_keys').upsert(rows, { onConflict: 'conversation_id,user_id', ignoreDuplicates: true });
     memConvKeys.set(conversationId, convKey);
     return convKey;
   }
@@ -570,7 +570,10 @@ const E2EE = (() => {
     const { data: profile } = await sb.from('profiles_public').select('public_key').eq('id', newUserId).single();
     if (!profile?.public_key) throw new Error('Recipient has no identity key yet.');
     const wrapped = await wrapKeyFor(convKey, profile.public_key);
-    await sb.from('conversation_keys').insert({ conversation_id: conversationId, user_id: newUserId, ...wrapped });
+    await sb.from('conversation_keys').upsert(
+      { conversation_id: conversationId, user_id: newUserId, ...wrapped },
+      { onConflict: 'conversation_id,user_id', ignoreDuplicates: true }
+    );
   }
 
   /** Fetches + unwraps (or returns cached) the symmetric key for a conversation. */
@@ -1566,12 +1569,42 @@ async function openChatWithFriend(friend) {
  * decryptMessageSafe already shows a visible placeholder per-message.
  */
 async function ensureConvKeyForOpen(convId, otherUserId) {
+  let haveKey = true;
   try {
     await E2EE.getConversationKey(sb, convId);
   } catch (err) {
-    console.error('No encryption key available yet for this conversation:', err);
-    return;
+    haveKey = false;
   }
+
+  if (!haveKey) {
+    // Either this conversation predates encryption entirely, or I just
+    // never got a key row for it. Check which case we're in.
+    const { count } = await sb.from('conversation_keys')
+      .select('*', { count: 'exact', head: true }).eq('conversation_id', convId);
+
+    if (!count) {
+      // Nobody has a key for this conversation yet — safe to bootstrap
+      // one from scratch and wrap it for both participants (or just me,
+      // if the other side hasn't generated an identity yet — they'll be
+      // caught up automatically below, or next time they open the chat).
+      try {
+        const participantIds = otherUserId ? [currentUser.id, otherUserId] : [currentUser.id];
+        await E2EE.createConversationKey(sb, convId, participantIds);
+      } catch (err) {
+        console.error('Failed to create an encryption key for this conversation:', err);
+        return;
+      }
+    } else {
+      // A key already exists, held by the other participant, but hasn't
+      // been wrapped for me yet. I can't create my own without
+      // orphaning their message history — nothing to do on my end here;
+      // it gets shared automatically the next time THEY open this chat
+      // (see the block below, which runs on their side symmetrically).
+      console.warn('Waiting for the other participant to share the encryption key with this device.');
+      return;
+    }
+  }
+
   if (!otherUserId) return;
   try {
     const { data: theirRow } = await sb.from('conversation_keys')
