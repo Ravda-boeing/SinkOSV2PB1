@@ -84,6 +84,24 @@
   #mainScreen { display: none; width: 100%; height: 100%; max-width: 1080px; gap: 16px; }
   #mainScreen.active { display: flex; }
 
+  /* Encryption-unlock overlay: shown on a restored session (page reload)
+     before the local E2EE private key has been decrypted into memory.
+     Reuses the same visual language as #authScreen rather than
+     introducing a new style. */
+  #unlockScreen { display: none; position: fixed; inset: 0; z-index: 60; align-items: center; justify-content: center; }
+  #unlockScreen.active { display: flex; }
+
+  /* Linked-devices settings modal */
+  #devicesModal { display: none; position: fixed; inset: 0; z-index: 70; align-items: center; justify-content: center; background: rgba(0,0,0,0.35); }
+  #devicesModal.active { display: flex; }
+  #devicesModal .authBox { width: 380px; }
+  .deviceLinkText { background: none; border: none; color: var(--text-dim); font-size: 11px; text-decoration: underline; cursor: pointer; padding: 0; }
+  .deviceLinkText:hover { color: var(--accent); }
+  .modalCloseBtn { width: 100%; margin-top: 10px; padding: 10px; background: none; border: 1px solid var(--glass-border); border-radius: var(--radius-sm); color: var(--text-dim); font-size: 12px; }
+  .modalCloseBtn:hover { color: var(--text); }
+  .dangerBtn { width: 100%; padding: 12px; border: none; border-radius: var(--radius-sm); background: var(--danger); color: #fff; font-weight: 600; font-size: 13px; margin-top: 4px; }
+  .dangerBtn:disabled { opacity: 0.5; cursor: not-allowed; }
+
   #sidebar { width: 300px; min-width: 300px; border-radius: var(--radius); display: flex; flex-direction: column; overflow: hidden; }
   #sidebarHeader { padding: 18px 18px 14px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--glass-border); }
   #sidebarHeader .brand { font-family: var(--font-display); font-size: 14px; font-weight: 700; }
@@ -229,7 +247,10 @@
           <div class="brand">Sink OS Chat</div>
           <div class="me" id="meLabel"></div>
         </div>
-        <button class="themeToggle" id="themeToggleBtn" title="Toggle theme">🌙</button>
+        <div style="display:flex; gap:6px;">
+          <button class="themeToggle" id="devicesBtn" title="Linked devices">🔗</button>
+          <button class="themeToggle" id="themeToggleBtn" title="Toggle theme">🌙</button>
+        </div>
       </div>
       <div id="tabBar">
         <button class="tabBtn active" data-tab="chats">Chats</button>
@@ -293,6 +314,48 @@
   </div>
 </div>
 
+<!-- ENCRYPTION UNLOCK OVERLAY -->
+<!-- Shown on a restored session (page reload / already logged into Supabase)
+     before the local end-to-end-encryption private key has been decrypted
+     into memory. Your Supabase auth password IS the E2EE unlock password —
+     there's no separate secret to remember. -->
+<div id="unlockScreen">
+  <div class="authBox glass">
+    <h1 id="unlockTitle">Unlock Encryption</h1>
+    <p class="sub" id="unlockSub">Enter your password to decrypt your messages on this device.</p>
+    <div class="field" id="unlockPasswordField"><label>Password</label><input type="password" id="unlockPassword" placeholder="••••••••" autocomplete="current-password"></div>
+    <button class="primary" id="unlockBtn">Unlock</button>
+    <div style="text-align:center; margin-top:10px;">
+      <button class="deviceLinkText" id="linkInsteadBtn" style="display:none;">Link this device from another one instead</button>
+    </div>
+    <div id="linkCodeBox" style="display:none; text-align:center; margin-top:6px;">
+      <div style="font-size:11px; color:var(--text-dim); margin-bottom:6px;">Enter this code on an already-unlocked device:</div>
+      <div id="linkCodeDisplay" style="font-family:var(--font-display); font-size:28px; font-weight:700; letter-spacing:4px;"></div>
+      <div style="font-size:10.5px; color:var(--text-faint); margin-top:8px;" id="linkWaitingText">Waiting for approval…</div>
+    </div>
+    <div class="authError" id="unlockError"></div>
+  </div>
+</div>
+
+<!-- LINKED DEVICES SETTINGS -->
+<div id="devicesModal">
+  <div class="authBox glass">
+    <h1>Linked Devices</h1>
+    <p class="sub">Devices that hold a copy of your encryption key.</p>
+    <div id="devicesListEl" style="margin-bottom:16px;"></div>
+    <div class="field">
+      <label>Approve a new device</label>
+      <div style="display:flex; gap:6px;">
+        <input type="text" id="approveCodeInput" placeholder="6-digit code" maxlength="6" style="flex:1;">
+        <button id="approveCodeBtn" style="padding:0 16px; border-radius:var(--radius-sm); border:none; background:var(--accent); color:#fff; font-weight:600; font-family:var(--font-body); font-size:12px;">Approve</button>
+      </div>
+    </div>
+    <div id="devicesMsg" style="font-size:11px; min-height:14px; margin:2px 0 10px;"></div>
+    <button class="dangerBtn" id="revokeOtherBtn">Sign Out Other Devices</button>
+    <button class="modalCloseBtn" id="closeDevicesBtn">Close</button>
+  </div>
+</div>
+
 <!-- INCOMING CALL NOTIFICATION -->
 <div id="incomingCallNotif" class="glass">
   <div class="notifTop">
@@ -310,6 +373,394 @@
     <button class="btnNotifDecline" id="notifDeclineBtn">Decline</button>
   </div>
 </div>
+
+<script>
+/**
+ * SinkOS Sink Chat — End-to-End Encryption module
+ * -------------------------------------------------
+ * Per-conversation AES-256-GCM symmetric key, wrapped individually for
+ * each participant via ECDH (P-256) + ephemeral-sender "sealed box".
+ * The server (Supabase) only ever stores/relays ciphertext — plaintext
+ * message content and the raw conversation key never leave the client.
+ *
+ * Device linking: a user's long-term ECDH identity is created once and
+ * transferred (sealed, over a short-lived Realtime channel) to any
+ * additional device, rather than each device minting its own identity —
+ * so profiles.public_key never has to change when a device is added,
+ * and every device can decrypt the same conversation history.
+ */
+const E2EE = (() => {
+  const DB_NAME = 'sinkos-e2ee';
+  const STORE = 'identity';
+  const memConvKeys = new Map(); // conversationId -> CryptoKey (unwrapped, session cache only)
+  let sessionPrivateKey = null;  // CryptoKey, held in memory only after unlock
+
+  // ---------- local key storage (IndexedDB) ----------
+
+  function idbOpen() {
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open(DB_NAME, 1);
+      req.onupgradeneeded = () => req.result.createObjectStore(STORE);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+  async function idbGet(key) {
+    const db = await idbOpen();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, 'readonly');
+      const req = tx.objectStore(STORE).get(key);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
+    });
+  }
+  async function idbSet(key, value) {
+    const db = await idbOpen();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, 'readwrite');
+      tx.objectStore(STORE).put(value, key);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  // ---------- helpers ----------
+
+  const b64 = {
+    enc: (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))),
+    dec: (str) => Uint8Array.from(atob(str), (c) => c.charCodeAt(0)).buffer,
+  };
+
+  async function deriveWrapKeyFromPassword(password, salt) {
+    const baseKey = await crypto.subtle.importKey(
+      'raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveKey']
+    );
+    return crypto.subtle.deriveKey(
+      { name: 'PBKDF2', salt, iterations: 250000, hash: 'SHA-256' },
+      baseKey,
+      { name: 'AES-GCM', length: 256 },
+      false,
+      ['wrapKey', 'unwrapKey']
+    );
+  }
+
+  async function importPeerPublicKey(rawB64) {
+    return crypto.subtle.importKey(
+      'raw', b64.dec(rawB64), { name: 'ECDH', namedCurve: 'P-256' }, false, []
+    );
+  }
+
+  // ---------- identity (long-term ECDH keypair) ----------
+
+  /** True if this device already holds a (password-wrapped) copy of the identity. */
+  async function hasLocalIdentity() {
+    const rec = await idbGet('wrappedPrivateKey');
+    return !!rec;
+  }
+
+  /**
+   * First-time setup: generates the user's ECDH identity keypair, uploads
+   * the public half to profiles.public_key, and stores the private half
+   * locally wrapped by their password. If this device already has an
+   * identity stored, unlocks that instead (so this is safe to call on
+   * every fresh sign-in regardless of whether it's a new or known device).
+   */
+  async function ensureIdentity(sb, userId, osPassword) {
+    const existing = await idbGet('wrappedPrivateKey');
+    if (existing) return unlockIdentity(osPassword);
+
+    const keyPair = await crypto.subtle.generateKey(
+      { name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveKey', 'deriveBits']
+    );
+
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const wrapKey = await deriveWrapKeyFromPassword(osPassword, salt);
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const wrapped = await crypto.subtle.wrapKey('pkcs8', keyPair.privateKey, wrapKey, { name: 'AES-GCM', iv });
+
+    await idbSet('wrappedPrivateKey', { wrapped: b64.enc(wrapped), salt: b64.enc(salt), iv: b64.enc(iv) });
+
+    const rawPub = await crypto.subtle.exportKey('raw', keyPair.publicKey);
+    await sb.from('profiles').update({ public_key: b64.enc(rawPub) }).eq('id', userId);
+
+    sessionPrivateKey = keyPair.privateKey;
+    await upsertDeviceRow(sb, userId);
+    return keyPair.privateKey;
+  }
+
+  /** Decrypts this device's stored private key into memory for the session. */
+  async function unlockIdentity(osPassword) {
+    const record = await idbGet('wrappedPrivateKey');
+    if (!record) throw new Error('No local identity found on this device — it needs to be linked first.');
+
+    const wrapKey = await deriveWrapKeyFromPassword(osPassword, new Uint8Array(b64.dec(record.salt)));
+    sessionPrivateKey = await crypto.subtle.unwrapKey(
+      'pkcs8',
+      b64.dec(record.wrapped),
+      wrapKey,
+      { name: 'AES-GCM', iv: new Uint8Array(b64.dec(record.iv)) },
+      { name: 'ECDH', namedCurve: 'P-256' },
+      false,
+      ['deriveKey', 'deriveBits']
+    );
+    return sessionPrivateKey;
+  }
+
+  /** Clears in-memory key material. Call this on sign-out. */
+  function lock() {
+    sessionPrivateKey = null;
+    memConvKeys.clear();
+  }
+
+  // ---------- conversation key wrapping (ECDH sealed-box style) ----------
+
+  async function wrapKeyFor(convKey, recipientPublicKeyB64) {
+    const ephemeral = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveKey']);
+    const recipientPub = await importPeerPublicKey(recipientPublicKeyB64);
+    const sharedKey = await crypto.subtle.deriveKey(
+      { name: 'ECDH', public: recipientPub }, ephemeral.privateKey,
+      { name: 'AES-GCM', length: 256 }, false, ['wrapKey']
+    );
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const wrapped = await crypto.subtle.wrapKey('raw', convKey, sharedKey, { name: 'AES-GCM', iv });
+    const ephemeralPub = await crypto.subtle.exportKey('raw', ephemeral.publicKey);
+    return { wrapped_key: b64.enc(wrapped), ephemeral_public_key: b64.enc(ephemeralPub), wrap_iv: b64.enc(iv) };
+  }
+
+  async function unwrapKeyRow(row) {
+    if (!sessionPrivateKey) throw new Error('Identity locked — unlock encryption first.');
+    const ephemeralPub = await importPeerPublicKey(row.ephemeral_public_key);
+    const sharedKey = await crypto.subtle.deriveKey(
+      { name: 'ECDH', public: ephemeralPub }, sessionPrivateKey,
+      { name: 'AES-GCM', length: 256 }, false, ['unwrapKey']
+    );
+    return crypto.subtle.unwrapKey(
+      'raw', b64.dec(row.wrapped_key), sharedKey,
+      { name: 'AES-GCM', iv: new Uint8Array(b64.dec(row.wrap_iv)) },
+      { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']
+    );
+  }
+
+  /**
+   * Call when creating a new conversation. Generates the symmetric key and
+   * wraps it for every participant that already has a public_key uploaded.
+   * (Anyone missing one gets caught up later via shareKeyWith — see
+   * ensureConvKeyForOpen below in the app code.)
+   */
+  async function createConversationKey(sb, conversationId, participantIds) {
+    const convKey = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
+
+    // public_key is only readable for OTHER users via profiles_public
+    // (the base `profiles` table is owner-only RLS).
+    const { data: profiles } = await sb.from('profiles_public').select('id, public_key').in('id', participantIds);
+    const rows = [];
+    for (const p of (profiles || [])) {
+      if (!p.public_key) continue;
+      const wrapped = await wrapKeyFor(convKey, p.public_key);
+      rows.push({ conversation_id: conversationId, user_id: p.id, ...wrapped });
+    }
+    if (rows.length) await sb.from('conversation_keys').insert(rows);
+    memConvKeys.set(conversationId, convKey);
+    return convKey;
+  }
+
+  /** Shares the (already-held) conversation key with a participant who didn't have a public_key yet at creation time. */
+  async function shareKeyWith(sb, conversationId, newUserId) {
+    const convKey = await getConversationKey(sb, conversationId);
+    const { data: profile } = await sb.from('profiles_public').select('public_key').eq('id', newUserId).single();
+    if (!profile?.public_key) throw new Error('Recipient has no identity key yet.');
+    const wrapped = await wrapKeyFor(convKey, profile.public_key);
+    await sb.from('conversation_keys').insert({ conversation_id: conversationId, user_id: newUserId, ...wrapped });
+  }
+
+  /** Fetches + unwraps (or returns cached) the symmetric key for a conversation. */
+  async function getConversationKey(sb, conversationId) {
+    if (memConvKeys.has(conversationId)) return memConvKeys.get(conversationId);
+    const { data: row, error } = await sb.from('conversation_keys')
+      .select('*').eq('conversation_id', conversationId).single();
+    if (error || !row) throw new Error('No encryption key available for this conversation yet.');
+    const key = await unwrapKeyRow(row);
+    memConvKeys.set(conversationId, key);
+    return key;
+  }
+
+  // ---------- message encrypt/decrypt ----------
+
+  async function encryptMessage(sb, conversationId, plaintext) {
+    const key = await getConversationKey(sb, conversationId);
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(plaintext));
+    return { content: b64.enc(ciphertext), iv: b64.enc(iv) };
+  }
+
+  async function decryptMessage(sb, conversationId, contentB64, ivB64) {
+    const key = await getConversationKey(sb, conversationId);
+    const plainBuf = await crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv: new Uint8Array(b64.dec(ivB64)) }, key, b64.dec(contentB64)
+    );
+    return new TextDecoder().decode(plainBuf);
+  }
+
+  // ---------- device linking ----------
+
+  function getLocalDeviceId() {
+    let id = localStorage.getItem('sinkos-device-id');
+    if (!id) { id = crypto.randomUUID(); localStorage.setItem('sinkos-device-id', id); }
+    return id;
+  }
+
+  function generateLinkCode() {
+    return Math.floor(100000 + Math.random() * 900000).toString();
+  }
+
+  async function sealBytes(bytes, recipientPublicKeyB64) {
+    const ephemeral = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveKey']);
+    const recipientPub = await importPeerPublicKey(recipientPublicKeyB64);
+    const sharedKey = await crypto.subtle.deriveKey(
+      { name: 'ECDH', public: recipientPub }, ephemeral.privateKey,
+      { name: 'AES-GCM', length: 256 }, false, ['encrypt']
+    );
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, sharedKey, bytes);
+    const ephemeralPub = await crypto.subtle.exportKey('raw', ephemeral.publicKey);
+    return { ciphertext: b64.enc(ciphertext), iv: b64.enc(iv), ephemeralPublicKey: b64.enc(ephemeralPub) };
+  }
+
+  async function unsealBytes(sealed, myTempPrivateKey) {
+    const senderEphemeralPub = await importPeerPublicKey(sealed.ephemeralPublicKey);
+    const sharedKey = await crypto.subtle.deriveKey(
+      { name: 'ECDH', public: senderEphemeralPub }, myTempPrivateKey,
+      { name: 'AES-GCM', length: 256 }, false, ['decrypt']
+    );
+    return crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv: new Uint8Array(b64.dec(sealed.iv)) }, sharedKey, b64.dec(sealed.ciphertext)
+    );
+  }
+
+  async function upsertDeviceRow(sb, userId, deviceName) {
+    await sb.from('user_devices').upsert(
+      { user_id: userId, device_id: getLocalDeviceId(), device_name: deviceName || navigator.userAgent, last_seen_at: new Date().toISOString() },
+      { onConflict: 'user_id,device_id' }
+    );
+  }
+
+  /** Call on a NEW device to receive the identity from an already-unlocked one. */
+  function linkNewDevice(sb, userId, newOsPassword, onCode) {
+    return new Promise(async (resolve, reject) => {
+      const code = generateLinkCode();
+      onCode?.(code);
+
+      const tempKeyPair = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveKey']);
+      const tempPublicRaw = b64.enc(await crypto.subtle.exportKey('raw', tempKeyPair.publicKey));
+
+      const channel = sb.channel(`link-${code}`);
+      const timeout = setTimeout(() => {
+        channel.unsubscribe();
+        reject(new Error('Linking timed out — generate a new code and try again.'));
+      }, 120000);
+
+      channel
+        .on('broadcast', { event: 'identity' }, async ({ payload }) => {
+          try {
+            const privateKeyBytes = await unsealBytes(payload, tempKeyPair.privateKey);
+            const privateKey = await crypto.subtle.importKey(
+              'pkcs8', privateKeyBytes, { name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveKey', 'deriveBits']
+            );
+            const salt = crypto.getRandomValues(new Uint8Array(16));
+            const wrapKey = await deriveWrapKeyFromPassword(newOsPassword, salt);
+            const iv = crypto.getRandomValues(new Uint8Array(12));
+            const wrapped = await crypto.subtle.wrapKey('pkcs8', privateKey, wrapKey, { name: 'AES-GCM', iv });
+
+            await idbSet('wrappedPrivateKey', { wrapped: b64.enc(wrapped), salt: b64.enc(salt), iv: b64.enc(iv) });
+            await upsertDeviceRow(sb, userId);
+
+            sessionPrivateKey = privateKey;
+            clearTimeout(timeout);
+            channel.unsubscribe();
+            resolve(privateKey);
+          } catch (err) {
+            clearTimeout(timeout);
+            channel.unsubscribe();
+            reject(err);
+          }
+        })
+        .subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            channel.send({ type: 'broadcast', event: 'hello', payload: { tempPublicKey: tempPublicRaw } });
+          }
+        });
+    });
+  }
+
+  /** Call on an ALREADY-UNLOCKED device to approve a new device showing `code`. */
+  function approveDeviceLink(sb, code) {
+    return new Promise((resolve, reject) => {
+      if (!sessionPrivateKey) return reject(new Error("Unlock this device's identity first."));
+
+      const channel = sb.channel(`link-${code}`);
+      const timeout = setTimeout(() => {
+        channel.unsubscribe();
+        reject(new Error('No device found with that code (it may have expired).'));
+      }, 120000);
+
+      channel
+        .on('broadcast', { event: 'hello' }, async ({ payload }) => {
+          try {
+            const rawPrivateKey = await crypto.subtle.exportKey('pkcs8', sessionPrivateKey);
+            const sealed = await sealBytes(rawPrivateKey, payload.tempPublicKey);
+            channel.send({ type: 'broadcast', event: 'identity', payload: sealed });
+            clearTimeout(timeout);
+            channel.unsubscribe();
+            resolve();
+          } catch (err) {
+            clearTimeout(timeout);
+            channel.unsubscribe();
+            reject(err);
+          }
+        })
+        .subscribe();
+    });
+  }
+
+  async function listDevices(sb, userId) {
+    const { data } = await sb.from('user_devices').select('*').eq('user_id', userId).order('linked_at');
+    return data || [];
+  }
+
+  /** Rotates identity to lock out every device but this one. Needs the current password to re-persist the new key locally. */
+  async function revokeOtherDevices(sb, userId, osPassword) {
+    if (!sessionPrivateKey) throw new Error("Unlock this device's identity first.");
+
+    const newKeyPair = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveKey', 'deriveBits']);
+    const rawPub = await crypto.subtle.exportKey('raw', newKeyPair.publicKey);
+    await sb.from('profiles').update({ public_key: b64.enc(rawPub) }).eq('id', userId);
+
+    const { data: convRows } = await sb.from('conversation_keys').select('conversation_id').eq('user_id', userId);
+    for (const { conversation_id } of (convRows || [])) {
+      const convKey = await getConversationKey(sb, conversation_id).catch(() => null);
+      if (!convKey) continue;
+      const wrapped = await wrapKeyFor(convKey, b64.enc(rawPub));
+      await sb.from('conversation_keys').update(wrapped).eq('conversation_id', conversation_id).eq('user_id', userId);
+    }
+
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const wrapKey = await deriveWrapKeyFromPassword(osPassword, salt);
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const wrapped = await crypto.subtle.wrapKey('pkcs8', newKeyPair.privateKey, wrapKey, { name: 'AES-GCM', iv });
+    await idbSet('wrappedPrivateKey', { wrapped: b64.enc(wrapped), salt: b64.enc(salt), iv: b64.enc(iv) });
+
+    sessionPrivateKey = newKeyPair.privateKey;
+    await sb.from('user_devices').delete().eq('user_id', userId).neq('device_id', getLocalDeviceId());
+  }
+
+  return {
+    hasLocalIdentity, ensureIdentity, unlockIdentity, lock,
+    createConversationKey, shareKeyWith, getConversationKey,
+    encryptMessage, decryptMessage,
+    linkNewDevice, approveDeviceLink, listDevices, revokeOtherDevices, getLocalDeviceId,
+  };
+})();
+</script>
 
 <script>
 // ============================================================
@@ -339,6 +790,13 @@ const ALLOWED_ATTACHMENTS = {
   py:   { mime: "text/x-python", kind: "file", icon: "🐍" }
 };
 
+// NOTE — scope of this pass: message CONTENT is end-to-end encrypted below.
+// Attachments (files in the `chat-attachments` storage bucket) are NOT
+// covered — they still upload as plaintext bytes. Encrypting attachments
+// client-side (encrypt the file before upload, decrypt after download)
+// is a separate, larger change; flagging it here so it isn't mistaken
+// for already being covered.
+
 function extOf(filename) {
   const parts = (filename || "").split(".");
   return parts.length > 1 ? parts.pop().toLowerCase() : "";
@@ -349,10 +807,6 @@ function formatBytes(bytes) {
   if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
   return (bytes / (1024 * 1024)).toFixed(1) + " MB";
 }
-// Escapes any user-controlled string (usernames, filenames) before it's
-// interpolated into an innerHTML template literal, so a crafted username
-// or attachment filename (e.g. containing "<img onerror=...>") can't
-// execute as markup in another user's session.
 function escapeHtml(str) {
   return String(str ?? "").replace(/[&<>"']/g, (c) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
@@ -389,10 +843,30 @@ let callSignalChannel  = null;
 let pendingCallSig     = null;
 let dismissTimer       = null;
 let pendingFile         = null;
+let pendingAuthPassword = null; // captured at sign-in, consumed once to set up/unlock E2EE identity
 
 // ---------- DOM ----------
 const authScreen        = document.getElementById('authScreen');
 const mainScreen        = document.getElementById('mainScreen');
+const unlockScreen      = document.getElementById('unlockScreen');
+const unlockTitle       = document.getElementById('unlockTitle');
+const unlockSub         = document.getElementById('unlockSub');
+const unlockPassword    = document.getElementById('unlockPassword');
+const unlockPasswordField = document.getElementById('unlockPasswordField');
+const unlockBtn         = document.getElementById('unlockBtn');
+const unlockError       = document.getElementById('unlockError');
+const linkInsteadBtn    = document.getElementById('linkInsteadBtn');
+const linkCodeBox       = document.getElementById('linkCodeBox');
+const linkCodeDisplay   = document.getElementById('linkCodeDisplay');
+const linkWaitingText   = document.getElementById('linkWaitingText');
+const devicesModal      = document.getElementById('devicesModal');
+const devicesBtn        = document.getElementById('devicesBtn');
+const devicesListEl     = document.getElementById('devicesListEl');
+const approveCodeInput  = document.getElementById('approveCodeInput');
+const approveCodeBtn    = document.getElementById('approveCodeBtn');
+const devicesMsg        = document.getElementById('devicesMsg');
+const revokeOtherBtn    = document.getElementById('revokeOtherBtn');
+const closeDevicesBtn   = document.getElementById('closeDevicesBtn');
 const authEmail         = document.getElementById('authEmail');
 const authPassword      = document.getElementById('authPassword');
 const authError         = document.getElementById('authError');
@@ -540,9 +1014,6 @@ async function getSignedUrl(path) {
     signedUrlCache.set(path, data.signedUrl);
     return data.signedUrl;
   } catch (err) {
-    // Network-level failures throw here rather than resolving with an
-    // `error` field — catch them so callers always get a clean null
-    // instead of an unhandled rejection that leaves the UI stuck.
     console.error('getSignedUrl threw:', err);
     return null;
   }
@@ -552,7 +1023,6 @@ async function getSignedUrl(path) {
 function showCallNotif(sig, callerName) {
   pendingCallSig = sig;
 
-  // Set avatar initials and re-add pulse ring
   notifAvatar.textContent = initials(callerName);
   const pulse = document.createElement('div');
   pulse.className = 'notifPulse';
@@ -572,7 +1042,6 @@ function dismissCallNotif() {
   if (dismissTimer) { clearTimeout(dismissTimer); dismissTimer = null; }
 }
 
-// Answer — open calls app as RECEIVER with callId so it joins existing offer
 notifAnswerBtn.addEventListener('click', () => {
   if (!pendingCallSig) return;
   const sig = pendingCallSig;
@@ -584,7 +1053,6 @@ notifAnswerBtn.addEventListener('click', () => {
   window.open(url, '_blank');
 });
 
-// Decline — send reject signal
 notifDeclineBtn.addEventListener('click', async () => {
   if (!pendingCallSig) return;
   const sig = pendingCallSig;
@@ -651,10 +1119,26 @@ function subscribeToMessages(convId) {
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, async (payload) => {
       if (payload.new.conversation_id !== convId) return;
       const { data: profile } = await sb.from('profiles_public').select('username').eq('id', payload.new.sender_id).single();
-      renderMessage({ ...payload.new, profiles: profile });
+      const decrypted = await decryptMessageSafe(convId, payload.new);
+      renderMessage({ ...payload.new, content: decrypted, profiles: profile });
       messagesEl.scrollTop = messagesEl.scrollHeight;
     })
     .subscribe();
+}
+
+// ---------- E2EE decrypt helper ----------
+// Decrypts a message row for display, falling back to a visible placeholder
+// (never silently blank, never a thrown error the user can't see) when a
+// key isn't available yet — e.g. the conversation key hasn't synced to
+// this device, or the message predates encryption being turned on.
+async function decryptMessageSafe(convId, msg) {
+  if (!msg.iv) return msg.content || ''; // legacy/plaintext row from before E2EE
+  try {
+    return await E2EE.decryptMessage(sb, convId, msg.content, msg.iv);
+  } catch (err) {
+    console.error('Failed to decrypt message:', err);
+    return '🔒 Unable to decrypt this message on this device.';
+  }
 }
 
 // ---------- Init ----------
@@ -662,19 +1146,179 @@ init();
 
 async function init() {
   const { data: { session } } = await sb.auth.getSession();
-  if (session) await handleSignedIn(session.user);
+  if (session) await handleSignedIn(session.user, null);
   sb.auth.onAuthStateChange((event, session) => {
-    if (event === 'SIGNED_IN' && session) handleSignedIn(session.user);
+    if (event === 'SIGNED_IN' && session) {
+      const pw = pendingAuthPassword; pendingAuthPassword = null;
+      handleSignedIn(session.user, pw);
+    }
     if (event === 'SIGNED_OUT') handleSignedOut();
   });
 }
 
-async function handleSignedIn(user) {
+/**
+ * `password` is only present right after an interactive sign-in (it's the
+ * same password used for Supabase auth, reused to wrap/unwrap the local
+ * E2EE identity — there's no separate encryption password to manage).
+ * On a restored session (page reload) it's null, and we show the unlock
+ * overlay to ask for it before revealing the main screen.
+ */
+async function handleSignedIn(user, password) {
   currentUser = user;
   const { data: profile } = await sb.from('profiles').select('*').eq('id', user.id).single();
   currentProfile = profile;
   meLabel.textContent = profile ? '@' + profile.username : user.email;
   authScreen.style.display = 'none';
+
+  if (password) {
+    try {
+      await E2EE.ensureIdentity(sb, user.id, password);
+      await enterMainScreen();
+    } catch (err) {
+      console.error('E2EE setup failed:', err);
+      promptUnlock(false);
+    }
+    return;
+  }
+
+  const hasLocal = await E2EE.hasLocalIdentity();
+  promptUnlock(!hasLocal);
+}
+
+function promptUnlock(isNewIdentity) {
+  unlockTitle.textContent = isNewIdentity ? 'Set Up Encryption' : 'Unlock Encryption';
+  unlockSub.textContent = isNewIdentity
+    ? 'This device has no local encryption key yet. Enter your account password to set one up, or link this device from an already-unlocked one.'
+    : 'Enter your password to decrypt your messages on this device.';
+  unlockPassword.value = '';
+  unlockError.textContent = '';
+  resetLinkUI();
+  linkInsteadBtn.style.display = isNewIdentity ? 'inline-block' : 'none';
+  unlockScreen.classList.add('active');
+}
+
+function resetLinkUI() {
+  unlockPasswordField.style.display = '';
+  unlockBtn.style.display = '';
+  linkCodeBox.style.display = 'none';
+  linkCodeDisplay.textContent = '';
+  linkWaitingText.textContent = 'Waiting for approval…';
+  linkWaitingText.style.color = '';
+}
+
+unlockBtn.addEventListener('click', async () => {
+  unlockError.textContent = '';
+  const pw = unlockPassword.value;
+  if (!pw) { unlockError.textContent = 'Enter your password.'; return; }
+  unlockBtn.disabled = true;
+  try {
+    const hasLocal = await E2EE.hasLocalIdentity();
+    if (hasLocal) {
+      await E2EE.unlockIdentity(pw);
+    } else {
+      await E2EE.ensureIdentity(sb, currentUser.id, pw);
+    }
+    unlockScreen.classList.remove('active');
+    await enterMainScreen();
+  } catch (err) {
+    console.error('Unlock failed:', err);
+    unlockError.textContent = 'Incorrect password.';
+  } finally {
+    unlockBtn.disabled = false;
+  }
+});
+unlockPassword.addEventListener('keydown', (e) => { if (e.key === 'Enter') unlockBtn.click(); });
+
+// ---------- Link this (new) device from an already-unlocked one ----------
+linkInsteadBtn.addEventListener('click', async () => {
+  const pw = unlockPassword.value;
+  if (!pw) { unlockError.textContent = 'Enter a password first — this device will use it to protect its copy of the key.'; return; }
+  unlockError.textContent = '';
+  unlockPasswordField.style.display = 'none';
+  unlockBtn.style.display = 'none';
+  linkInsteadBtn.style.display = 'none';
+  linkCodeBox.style.display = 'block';
+
+  try {
+    await E2EE.linkNewDevice(sb, currentUser.id, pw, (code) => {
+      linkCodeDisplay.textContent = code;
+    });
+    unlockScreen.classList.remove('active');
+    resetLinkUI();
+    await enterMainScreen();
+  } catch (err) {
+    console.error('Device linking failed:', err);
+    linkWaitingText.style.color = 'var(--danger)';
+    linkWaitingText.textContent = (err.message || 'Linking failed or timed out.') + ' Reload to try again.';
+  }
+});
+
+// ---------- Linked devices settings panel ----------
+devicesBtn.addEventListener('click', async () => {
+  devicesMsg.textContent = '';
+  approveCodeInput.value = '';
+  devicesModal.classList.add('active');
+  await renderDevicesList();
+});
+closeDevicesBtn.addEventListener('click', () => devicesModal.classList.remove('active'));
+
+async function renderDevicesList() {
+  const devices = await E2EE.listDevices(sb, currentUser.id);
+  const myId = E2EE.getLocalDeviceId();
+  devicesListEl.innerHTML = devices.length
+    ? devices.map(d => `
+        <div class="rowItem" style="cursor:default;">
+          <div class="avatar" style="font-size:11px;">${escapeHtml((d.device_name || '?').slice(0, 2).toUpperCase())}</div>
+          <div class="rowText">
+            <div class="name">${escapeHtml(d.device_name || 'Unknown device')}${d.device_id === myId ? ' <span style="color:var(--online); font-size:10px;">(this device)</span>' : ''}</div>
+            <div class="preview">Linked ${new Date(d.linked_at).toLocaleDateString()}</div>
+          </div>
+        </div>`).join('')
+    : '<div class="rowMuted">No devices registered yet.</div>';
+}
+
+approveCodeBtn.addEventListener('click', async () => {
+  const code = approveCodeInput.value.trim();
+  devicesMsg.style.color = '';
+  if (!/^\d{6}$/.test(code)) { devicesMsg.style.color = 'var(--danger)'; devicesMsg.textContent = 'Enter the 6-digit code shown on the new device.'; return; }
+  approveCodeBtn.disabled = true;
+  devicesMsg.textContent = 'Waiting for the new device…';
+  try {
+    await E2EE.approveDeviceLink(sb, code);
+    devicesMsg.style.color = 'var(--online)';
+    devicesMsg.textContent = 'Device linked!';
+    approveCodeInput.value = '';
+    await renderDevicesList();
+  } catch (err) {
+    console.error('Approve device link failed:', err);
+    devicesMsg.style.color = 'var(--danger)';
+    devicesMsg.textContent = err.message || 'Failed to link device.';
+  } finally {
+    approveCodeBtn.disabled = false;
+  }
+});
+
+revokeOtherBtn.addEventListener('click', async () => {
+  const pw = prompt('Enter your password to confirm signing out other devices:');
+  if (!pw) return;
+  revokeOtherBtn.disabled = true;
+  devicesMsg.style.color = '';
+  devicesMsg.textContent = 'Rotating encryption key…';
+  try {
+    await E2EE.revokeOtherDevices(sb, currentUser.id, pw);
+    devicesMsg.style.color = 'var(--online)';
+    devicesMsg.textContent = 'Other devices have been signed out.';
+    await renderDevicesList();
+  } catch (err) {
+    console.error('Revoke other devices failed:', err);
+    devicesMsg.style.color = 'var(--danger)';
+    devicesMsg.textContent = err.message || 'Failed to revoke other devices.';
+  } finally {
+    revokeOtherBtn.disabled = false;
+  }
+});
+
+async function enterMainScreen() {
   mainScreen.classList.add('active');
   await Promise.all([loadFriendsAndRequests(), loadConversations()]);
   setupPresence();
@@ -687,11 +1331,14 @@ function handleSignedOut() {
   conversations = []; friends = []; incomingRequests = []; outgoingRequests = [];
   activeConversationId = null; activeFriendId = null; activeFriendName = null;
   clearPendingAttachment();
+  E2EE.lock();
   if (presenceChannel)   { sb.removeChannel(presenceChannel);   presenceChannel   = null; }
   if (messageChannel)    { sb.removeChannel(messageChannel);    messageChannel    = null; }
   if (friendReqChannel)  { sb.removeChannel(friendReqChannel);  friendReqChannel  = null; }
   if (callSignalChannel) { sb.removeChannel(callSignalChannel); callSignalChannel = null; }
   mainScreen.classList.remove('active');
+  unlockScreen.classList.remove('active');
+  devicesModal.classList.remove('active');
   authScreen.style.display = 'flex';
 }
 
@@ -702,7 +1349,8 @@ signInBtn.addEventListener('click', async () => {
   const password = authPassword.value;
   if (!email || !password) { authError.textContent = 'Enter your email and password.'; return; }
   const { error } = await sb.auth.signInWithPassword({ email, password });
-  if (error) authError.textContent = error.message;
+  if (error) { authError.textContent = error.message; return; }
+  pendingAuthPassword = password; // consumed once by the SIGNED_IN handler above
 });
 signOutBtn.addEventListener('click', async () => { await sb.auth.signOut(); });
 
@@ -843,6 +1491,16 @@ async function ensureConversationWith(otherUserId) {
     participant_ids: [otherUserId]
   });
   if (rpcError) { console.error('create conversation error:', rpcError); return null; }
+
+  // Set up E2EE for the new conversation. If the other participant hasn't
+  // generated their identity yet, they're caught up later — see
+  // ensureConvKeyForOpen, called whenever the conversation is opened.
+  try {
+    await E2EE.createConversationKey(sb, newConvId, [currentUser.id, otherUserId]);
+  } catch (err) {
+    console.error('Failed to set up encryption for new conversation:', err);
+  }
+
   return newConvId;
 }
 
@@ -899,6 +1557,36 @@ async function openChatWithFriend(friend) {
   }
 }
 
+/**
+ * Makes sure the current user can decrypt this conversation, and — if the
+ * other participant couldn't be given the key at creation time because
+ * they hadn't generated an identity yet — shares it with them now that
+ * they may have caught up. Failures here are logged, not thrown: an
+ * unreadable conversation shouldn't block opening the chat pane itself,
+ * decryptMessageSafe already shows a visible placeholder per-message.
+ */
+async function ensureConvKeyForOpen(convId, otherUserId) {
+  try {
+    await E2EE.getConversationKey(sb, convId);
+  } catch (err) {
+    console.error('No encryption key available yet for this conversation:', err);
+    return;
+  }
+  if (!otherUserId) return;
+  try {
+    const { data: theirRow } = await sb.from('conversation_keys')
+      .select('user_id').eq('conversation_id', convId).eq('user_id', otherUserId).maybeSingle();
+    if (!theirRow) {
+      const { data: theirProfile } = await sb.from('profiles_public').select('public_key').eq('id', otherUserId).single();
+      if (theirProfile?.public_key) {
+        await E2EE.shareKeyWith(sb, convId, otherUserId);
+      }
+    }
+  } catch (err) {
+    console.error('Could not share the encryption key with the other participant yet:', err);
+  }
+}
+
 async function openConversation(convId, other) {
   activeConversationId = convId;
   activeFriendId = other ? other.id : null;
@@ -915,6 +1603,7 @@ async function openConversation(convId, other) {
   messagesEl.style.display = 'flex';
   composer.style.display = 'flex';
 
+  await ensureConvKeyForOpen(convId, activeFriendId);
   await loadMessages(convId);
   subscribeToMessages(convId);
 }
@@ -932,7 +1621,10 @@ async function loadMessages(convId) {
   }
 
   messagesEl.innerHTML = '';
-  (msgs || []).forEach(m => renderMessage({ ...m, profiles: profileMap[m.sender_id] }));
+  for (const m of (msgs || [])) {
+    const decrypted = await decryptMessageSafe(convId, m);
+    renderMessage({ ...m, content: decrypted, profiles: profileMap[m.sender_id] });
+  }
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
@@ -986,10 +1678,6 @@ function renderAttachment(el, msg) {
     });
 }
 
-// Renders an image attachment defensively: always ends in a visible state
-// (loaded photo, or a clickable "couldn't load — retry" chip) — never a
-// silently empty <img> with no src and no visible indication anything
-// went wrong.
 function renderImageAttachment(el, msg) {
   const loadingEl = document.createElement('div');
   loadingEl.className = 'attachLoading';
@@ -1003,9 +1691,6 @@ function renderImageAttachment(el, msg) {
       img.className = 'attachImg';
       img.alt = msg.attachment_name || 'attachment';
       img.addEventListener('click', () => window.open(url, '_blank'));
-      // If the URL itself loaded but the image data fails to decode/fetch
-      // (expired signed URL, CDN hiccup, etc.), swap to the retry chip
-      // instead of leaving a broken img icon.
       img.addEventListener('error', () => {
         img.replaceWith(fallbackAttachChip(msg, el, true));
       }, { once: true });
@@ -1023,9 +1708,6 @@ function attachIconFor(name) {
   return rule?.icon || '📎';
 }
 
-// Always-visible failure state, with a retry that re-runs the render logic
-// in place — so a transient failure is recoverable without reloading the
-// whole conversation.
 function fallbackAttachChip(msg, el, isImage) {
   const chip = document.createElement('div');
   chip.className = 'attachLoading';
@@ -1073,17 +1755,21 @@ async function sendMessage() {
     if (file) {
       attachmentFields = await uploadPendingAttachment(activeConversationId);
     }
+
+    const { content: encContent, iv } = await E2EE.encryptMessage(sb, activeConversationId, content || '');
+
     const { error } = await sb.from('messages').insert({
       conversation_id: activeConversationId,
       sender_id: currentUser.id,
-      content: content || '',
+      content: encContent,
+      iv,
       ...attachmentFields
     });
     if (error) { alert('Failed to send: ' + error.message); return; }
     messageInput.value = '';
     clearPendingAttachment();
   } catch (err) {
-    alert('Failed to send attachment: ' + (err.message || err));
+    alert('Failed to send message: ' + (err.message || err));
   } finally {
     sendBtn.disabled = false;
     attachBtn.disabled = false;
