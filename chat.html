@@ -120,6 +120,7 @@
   .rowItem:hover { background: var(--glass); }
   .rowItem.active { background: var(--glass-strong); }
   .avatar { width: 36px; height: 36px; border-radius: 50%; flex-shrink: 0; background: linear-gradient(135deg, var(--accent), var(--accent-strong)); display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 700; font-size: 13px; position: relative; }
+  .avatar.groupAvatar { border-radius: 30%; background: linear-gradient(135deg, var(--orb-3), var(--accent-strong)); }
   .presenceDot { position: absolute; width: 10px; height: 10px; border-radius: 50%; bottom: -1px; right: -1px; border: 2px solid var(--bg-0); background: var(--text-faint); }
   .presenceDot.online { background: var(--online); }
   .rowText { flex: 1; min-width: 0; }
@@ -142,13 +143,21 @@
   #addFriendMsg.error { color: var(--danger); }
   #addFriendMsg.success { color: var(--online); }
 
+  /* ---------- Chats tab header (New Group action) ---------- */
+  #chatsTabHeader { display: flex; align-items: center; justify-content: space-between; padding: 2px 4px 10px; }
+  #chatsTabHeader .label { font-size: 10.5px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 1px; font-weight: 600; }
+  #newGroupBtn { padding: 5px 10px; border-radius: 999px; border: 1px solid var(--glass-border); background: var(--glass); color: var(--text-dim); font-size: 11px; font-weight: 600; font-family: var(--font-body); display: flex; align-items: center; gap: 4px; }
+  #newGroupBtn:hover { background: var(--glass-strong); color: var(--text); border-color: var(--accent); }
+  .groupTag { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--accent); background: rgba(124,155,255,0.14); padding: 1px 6px; border-radius: 6px; margin-left: 6px; vertical-align: 1px; }
+
   #signOutBtn { padding: 12px 18px; background: none; border: none; border-top: 1px solid var(--glass-border); color: var(--text-faint); font-size: 10.5px; text-align: left; text-transform: uppercase; letter-spacing: 1px; font-weight: 600; width: 100%; }
   #signOutBtn:hover { color: var(--danger); }
 
   #chatPane { flex: 1; border-radius: var(--radius); display: flex; flex-direction: column; overflow: hidden; }
   #chatHeader { padding: 14px 22px; border-bottom: 1px solid var(--glass-border); display: none; align-items: center; gap: 12px; }
-  .chInfo { flex: 1; }
-  .chInfo .chTitle { font-size: 13.5px; font-weight: 600; }
+  .chInfo { flex: 1; min-width: 0; cursor: default; }
+  .chInfo.clickable { cursor: pointer; }
+  .chInfo .chTitle { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .chInfo .chStatus { font-size: 10.5px; color: var(--text-dim); margin-top: 2px; display: flex; align-items: center; gap: 5px; }
   .chStatusDot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-faint); display: inline-block; }
   .chStatusDot.online { background: var(--online); }
@@ -157,6 +166,10 @@
   .callBtn:hover { background: var(--glass-strong); transform: translateY(-1px); }
   .callBtn.voice:hover { border-color: var(--online); }
   .callBtn.video:hover { border-color: var(--accent); }
+  .callBtn:disabled { opacity: 0.35; cursor: not-allowed; }
+  .callBtn:disabled:hover { transform: none; background: var(--glass); }
+  #groupMembersBtn { width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--glass-border); background: var(--glass); color: var(--text); font-size: 15px; display: flex; align-items: center; justify-content: center; }
+  #groupMembersBtn:hover { background: var(--glass-strong); }
 
   #emptyState { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--text-faint); font-size: 12.5px; text-align: center; padding: 20px; gap: 6px; }
   #emptyState .big { font-family: var(--font-display); font-size: 16px; color: var(--text-dim); font-weight: 600; }
@@ -167,6 +180,7 @@
   .msg.theirs { align-self: flex-start; border-bottom-left-radius: 4px; background: var(--glass-strong); border: 1px solid var(--glass-border); color: var(--text); }
   .msg .meta { font-size: 9px; opacity: 0.6; margin-bottom: 3px; text-transform: uppercase; letter-spacing: 0.8px; }
   .msg .body { white-space: pre-wrap; word-break: break-word; }
+  .msg.system { align-self: center; max-width: 80%; background: none; border: none; color: var(--text-faint); font-size: 10.5px; text-align: center; padding: 2px 10px; text-transform: uppercase; letter-spacing: 0.6px; }
 
   .attachImg { display: block; max-width: 240px; max-height: 240px; border-radius: 10px; margin-top: 6px; cursor: pointer; object-fit: cover; }
   .attachFile { display: flex; align-items: center; gap: 8px; margin-top: 6px; padding: 8px 10px; border-radius: 10px; background: rgba(0,0,0,0.14); text-decoration: none; color: inherit; }
@@ -219,6 +233,32 @@
   .btnNotifDecline { background: var(--glass-strong); color: var(--text-dim); border: 1px solid var(--glass-border) !important; }
   .btnNotifDecline:hover { color: var(--danger); }
 
+  /* ---------- New Group modal ---------- */
+  #newGroupModal { display: none; position: fixed; inset: 0; z-index: 70; align-items: center; justify-content: center; background: rgba(0,0,0,0.35); }
+  #newGroupModal.active { display: flex; }
+  #newGroupModal .authBox { width: 380px; max-height: 82vh; display: flex; flex-direction: column; }
+  #groupNameInput { margin-bottom: 4px; }
+  #groupMemberSearch { margin-top: 2px; }
+  #groupFriendPicker { flex: 1; overflow-y: auto; max-height: 220px; margin: 10px 0 4px; border: 1px solid var(--glass-border); border-radius: var(--radius-sm); padding: 4px; }
+  .pickRow { display: flex; align-items: center; gap: 10px; padding: 8px 8px; border-radius: 10px; cursor: pointer; }
+  .pickRow:hover { background: var(--glass); }
+  .pickRow input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent); flex-shrink: 0; }
+  .pickRow .name { font-size: 12.5px; font-weight: 600; flex: 1; }
+  #groupSelectedCount { font-size: 10.5px; color: var(--text-dim); margin: 2px 0 8px; }
+  #newGroupError { color: var(--danger); font-size: 11.5px; margin-top: 8px; min-height: 14px; }
+
+  /* ---------- Group members modal ---------- */
+  #groupMembersModal { display: none; position: fixed; inset: 0; z-index: 70; align-items: center; justify-content: center; background: rgba(0,0,0,0.35); }
+  #groupMembersModal.active { display: flex; }
+  #groupMembersModal .authBox { width: 380px; max-height: 82vh; display: flex; flex-direction: column; }
+  #groupMembersList { flex: 1; overflow-y: auto; margin: 8px 0 12px; }
+  .memberRow { display: flex; align-items: center; gap: 10px; padding: 8px; }
+  .memberRow .roleTag { font-size: 9.5px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.6px; font-weight: 600; }
+  .memberRow .removeBtn { background: none; border: none; color: var(--text-faint); font-size: 12px; padding: 4px 6px; }
+  .memberRow .removeBtn:hover { color: var(--danger); }
+  #groupAddMemberRow { display: flex; gap: 6px; margin-top: 4px; }
+  #groupMembersMsg { font-size: 10.5px; min-height: 14px; margin: 4px 0; }
+
   ::-webkit-scrollbar { width: 6px; }
   ::-webkit-scrollbar-thumb { background: var(--glass-border); border-radius: 10px; }
 </style>
@@ -258,7 +298,13 @@
         <button class="tabBtn" data-tab="requests">Requests<span class="tabBadge" id="reqBadge" style="display:none;">0</span></button>
       </div>
       <div id="tabPanels" style="flex:1; overflow:hidden; display:flex; flex-direction:column;">
-        <div class="tabPanel active" id="panel-chats"></div>
+        <div class="tabPanel active" id="panel-chats">
+          <div id="chatsTabHeader">
+            <span class="label">Conversations</span>
+            <button id="newGroupBtn" title="Start a group chat">＋ New Group</button>
+          </div>
+          <div id="chatsListContainer"></div>
+        </div>
         <div class="tabPanel" id="panel-friends">
           <div id="addFriendBar">
             <input type="text" id="addFriendInput" placeholder="Add friend by username">
@@ -280,13 +326,14 @@
     <div id="chatPane" class="glass">
       <div id="chatHeader">
         <div class="avatar" id="chatAvatar"></div>
-        <div class="chInfo">
+        <div class="chInfo" id="chatInfo">
           <div class="chTitle" id="chatTitle"></div>
           <div class="chStatus">
             <span class="chStatusDot" id="chatStatusDot"></span>
             <span id="chatStatusText"></span>
           </div>
         </div>
+        <button id="groupMembersBtn" title="Group members" style="display:none;">👥</button>
         <div class="callBtns">
           <button class="callBtn voice" id="voiceCallBtn" title="Voice call">📞</button>
           <button class="callBtn video" id="videoCallBtn" title="Video call">🎥</button>
@@ -356,6 +403,42 @@
   </div>
 </div>
 
+<!-- NEW GROUP MODAL -->
+<div id="newGroupModal">
+  <div class="authBox glass">
+    <h1>New Group</h1>
+    <p class="sub">Pick a name and add friends to start a group chat.</p>
+    <div class="field" id="groupNameInput">
+      <label>Group name</label>
+      <input type="text" id="groupNameField" placeholder="e.g. Weekend Project" maxlength="60">
+    </div>
+    <div class="field" id="groupMemberSearch">
+      <label>Members</label>
+      <input type="text" id="groupMemberFilter" placeholder="Filter friends...">
+    </div>
+    <div id="groupSelectedCount">0 selected</div>
+    <div id="groupFriendPicker"></div>
+    <div id="newGroupError"></div>
+    <button class="primary" id="createGroupBtn">Create Group</button>
+    <button class="modalCloseBtn" id="closeNewGroupBtn">Cancel</button>
+  </div>
+</div>
+
+<!-- GROUP MEMBERS MODAL -->
+<div id="groupMembersModal">
+  <div class="authBox glass">
+    <h1 id="groupMembersTitle">Group Members</h1>
+    <p class="sub" id="groupMembersSub">Everyone in this conversation.</p>
+    <div id="groupMembersList"></div>
+    <div id="groupAddMemberRow">
+      <input type="text" id="groupAddMemberInput" placeholder="Add friend by username" style="flex:1;">
+      <button id="groupAddMemberBtn" style="padding:0 14px; border-radius:var(--radius-sm); border:none; background:var(--accent); color:#fff; font-weight:600; font-family:var(--font-body); font-size:12px;">Add</button>
+    </div>
+    <div id="groupMembersMsg"></div>
+    <button class="modalCloseBtn" id="closeGroupMembersBtn">Close</button>
+  </div>
+</div>
+
 <!-- INCOMING CALL NOTIFICATION -->
 <div id="incomingCallNotif" class="glass">
   <div class="notifTop">
@@ -382,6 +465,12 @@
  * each participant via ECDH (P-256) + ephemeral-sender "sealed box".
  * The server (Supabase) only ever stores/relays ciphertext — plaintext
  * message content and the raw conversation key never leave the client.
+ *
+ * This scheme is participant-count agnostic: createConversationKey()
+ * already takes an arbitrary array of participant ids and wraps the
+ * same symmetric key once per recipient, so group conversations use
+ * the exact same key-wrapping path as 1:1 ones — a group is just a
+ * conversation with more than two wrapped-key rows.
  *
  * Device linking: a user's long-term ECDH identity is created once and
  * transferred (sealed, over a short-lived Realtime channel) to any
@@ -545,7 +634,8 @@ const E2EE = (() => {
    * Call when creating a new conversation. Generates the symmetric key and
    * wraps it for every participant that already has a public_key uploaded.
    * (Anyone missing one gets caught up later via shareKeyWith — see
-   * ensureConvKeyForOpen below in the app code.)
+   * ensureConvKeyForOpen below in the app code.) Works identically for a
+   * 1:1 conversation or a group — participantIds is just longer.
    */
   async function createConversationKey(sb, conversationId, participantIds) {
     const convKey = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
@@ -564,7 +654,7 @@ const E2EE = (() => {
     return convKey;
   }
 
-  /** Shares the (already-held) conversation key with a participant who didn't have a public_key yet at creation time. */
+  /** Shares the (already-held) conversation key with a participant who didn't have a public_key yet at creation time (or who just joined a group). */
   async function shareKeyWith(sb, conversationId, newUserId) {
     const convKey = await getConversationKey(sb, conversationId);
     const { data: profile } = await sb.from('profiles_public').select('public_key').eq('id', newUserId).single();
@@ -837,7 +927,8 @@ let incomingRequests   = [];
 let outgoingRequests   = [];
 let onlineUserIds      = new Set();
 let activeConversationId = null;
-let activeFriendId     = null;
+let activeConversation = null;  // full record for the open conversation (group or 1:1)
+let activeFriendId     = null;  // only set for 1:1 conversations
 let activeFriendName   = null;
 let messageChannel     = null;
 let presenceChannel    = null;
@@ -847,6 +938,7 @@ let pendingCallSig     = null;
 let dismissTimer       = null;
 let pendingFile         = null;
 let pendingAuthPassword = null; // captured at sign-in, consumed once to set up/unlock E2EE identity
+let groupPickerSelected = new Set(); // friend ids selected in the New Group modal
 
 // ---------- DOM ----------
 const authScreen        = document.getElementById('authScreen');
@@ -878,9 +970,11 @@ const signOutBtn        = document.getElementById('signOutBtn');
 const meLabel           = document.getElementById('meLabel');
 const chatHeader        = document.getElementById('chatHeader');
 const chatAvatar        = document.getElementById('chatAvatar');
+const chatInfo          = document.getElementById('chatInfo');
 const chatTitle         = document.getElementById('chatTitle');
 const chatStatusDot     = document.getElementById('chatStatusDot');
 const chatStatusText    = document.getElementById('chatStatusText');
+const groupMembersBtn   = document.getElementById('groupMembersBtn');
 const emptyState        = document.getElementById('emptyState');
 const messagesEl        = document.getElementById('messages');
 const composer          = document.getElementById('composer');
@@ -888,7 +982,8 @@ const messageInput      = document.getElementById('messageInput');
 const sendBtn           = document.getElementById('sendBtn');
 const voiceCallBtn      = document.getElementById('voiceCallBtn');
 const videoCallBtn      = document.getElementById('videoCallBtn');
-const panelChats        = document.getElementById('panel-chats');
+const panelChats        = document.getElementById('chatsListContainer');
+const newGroupBtn       = document.getElementById('newGroupBtn');
 const friendsList       = document.getElementById('friendsList');
 const incomingList      = document.getElementById('incomingList');
 const outgoingList      = document.getElementById('outgoingList');
@@ -911,6 +1006,26 @@ const paSize            = document.getElementById('paSize');
 const paRemoveBtn       = document.getElementById('paRemoveBtn');
 const attachErrorEl     = document.getElementById('attachError');
 
+// New Group modal DOM
+const newGroupModal     = document.getElementById('newGroupModal');
+const groupNameField    = document.getElementById('groupNameField');
+const groupMemberFilter = document.getElementById('groupMemberFilter');
+const groupFriendPicker = document.getElementById('groupFriendPicker');
+const groupSelectedCount= document.getElementById('groupSelectedCount');
+const newGroupError     = document.getElementById('newGroupError');
+const createGroupBtn    = document.getElementById('createGroupBtn');
+const closeNewGroupBtn  = document.getElementById('closeNewGroupBtn');
+
+// Group members modal DOM
+const groupMembersModal = document.getElementById('groupMembersModal');
+const groupMembersTitle = document.getElementById('groupMembersTitle');
+const groupMembersSub   = document.getElementById('groupMembersSub');
+const groupMembersList  = document.getElementById('groupMembersList');
+const groupAddMemberInput = document.getElementById('groupAddMemberInput');
+const groupAddMemberBtn = document.getElementById('groupAddMemberBtn');
+const groupMembersMsg   = document.getElementById('groupMembersMsg');
+const closeGroupMembersBtn = document.getElementById('closeGroupMembersBtn');
+
 // ---------- Tabs ----------
 document.querySelectorAll('.tabBtn').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -929,7 +1044,17 @@ function setPresenceUI(friendId) {
   chatStatusText.textContent = online ? 'Online' : 'Offline';
 }
 
-// ---------- Call buttons (caller) ----------
+/** Group presence: "N online" out of the other members, or "No one else online". */
+function setGroupPresenceUI(conv) {
+  const others = (conv.members || []).filter(m => m.user_id !== currentUser.id);
+  const onlineCount = others.filter(m => onlineUserIds.has(m.user_id)).length;
+  chatStatusDot.className = 'chStatusDot' + (onlineCount > 0 ? ' online' : '');
+  chatStatusText.textContent = onlineCount > 0
+    ? `${onlineCount} online · ${others.length + 1} members`
+    : `${others.length + 1} members`;
+}
+
+// ---------- Call buttons (caller) — 1:1 only ----------
 voiceCallBtn.addEventListener('click', () => {
   if (!activeFriendId) return;
   const url = `${CALLS_APP_URL}?role=caller&type=voice`
@@ -1097,7 +1222,11 @@ function setupPresence() {
     const state = presenceChannel.presenceState();
     onlineUserIds = new Set(Object.keys(state));
     renderFriends(); renderChats();
-    if (activeFriendId) setPresenceUI(activeFriendId);
+    if (activeConversation && activeConversation.is_group) {
+      setGroupPresenceUI(activeConversation);
+    } else if (activeFriendId) {
+      setPresenceUI(activeFriendId);
+    }
   });
   presenceChannel.subscribe(async (status) => {
     if (status === 'SUBSCRIBED') await presenceChannel.track({ online_at: new Date().toISOString() });
@@ -1332,7 +1461,7 @@ async function enterMainScreen() {
 function handleSignedOut() {
   currentUser = null; currentProfile = null;
   conversations = []; friends = []; incomingRequests = []; outgoingRequests = [];
-  activeConversationId = null; activeFriendId = null; activeFriendName = null;
+  activeConversationId = null; activeConversation = null; activeFriendId = null; activeFriendName = null;
   clearPendingAttachment();
   E2EE.lock();
   if (presenceChannel)   { sb.removeChannel(presenceChannel);   presenceChannel   = null; }
@@ -1342,6 +1471,8 @@ function handleSignedOut() {
   mainScreen.classList.remove('active');
   unlockScreen.classList.remove('active');
   devicesModal.classList.remove('active');
+  newGroupModal.classList.remove('active');
+  groupMembersModal.classList.remove('active');
   authScreen.style.display = 'flex';
 }
 
@@ -1488,7 +1619,7 @@ async function respondToRequest(requestId, status, otherUserId) {
 
 // ---------- Conversations ----------
 async function ensureConversationWith(otherUserId) {
-  const existing = conversations.find(c => c.otherUser && c.otherUser.id === otherUserId);
+  const existing = conversations.find(c => !c.is_group && c.otherUser && c.otherUser.id === otherUserId);
   if (existing) return existing.id;
   const { data: newConvId, error: rpcError } = await sb.rpc('create_conversation_with_participants', {
     participant_ids: [otherUserId]
@@ -1507,6 +1638,31 @@ async function ensureConversationWith(otherUserId) {
   return newConvId;
 }
 
+/**
+ * Creates a group conversation via the `create_group_conversation` RPC
+ * (server side, mirrors the existing create_conversation_with_participants
+ * SECURITY DEFINER pattern so group creation doesn't have to fight RLS on
+ * conversation_participants the same way the original 1:1 flow didn't).
+ * Wraps the E2EE key for every selected member up front, same call used
+ * for 1:1 conversations — createConversationKey doesn't care how many
+ * participant ids it's given.
+ */
+async function createGroupConversation(name, memberIds) {
+  const { data: newConvId, error: rpcError } = await sb.rpc('create_group_conversation', {
+    p_name: name,
+    p_participant_ids: memberIds
+  });
+  if (rpcError) throw rpcError;
+
+  try {
+    await E2EE.createConversationKey(sb, newConvId, [currentUser.id, ...memberIds]);
+  } catch (err) {
+    console.error('Failed to set up encryption for new group:', err);
+  }
+
+  return newConvId;
+}
+
 async function loadConversations() {
   const { data: parts, error: partsError } = await sb.from('conversation_participants').select('conversation_id').eq('user_id', currentUser.id);
   if (partsError) { console.error('parts error:', partsError); return; }
@@ -1517,58 +1673,92 @@ async function loadConversations() {
   if (convsError) { console.error('convs error:', convsError); return; }
 
   const enriched = await Promise.all((convs || []).map(async (conv) => {
-    const { data: allParts } = await sb.from('conversation_participants').select('user_id').eq('conversation_id', conv.id);
+    const { data: allParts } = await sb.from('conversation_participants').select('user_id, role').eq('conversation_id', conv.id);
+
+    if (conv.is_group) {
+      const memberIds = (allParts || []).map(p => p.user_id);
+      let memberProfiles = [];
+      if (memberIds.length > 0) {
+        const { data: profs } = await sb.from('profiles_public').select('id, username').in('id', memberIds);
+        memberProfiles = profs || [];
+      }
+      const members = (allParts || []).map(p => ({
+        ...p,
+        username: memberProfiles.find(pr => pr.id === p.user_id)?.username || 'unknown'
+      }));
+      return { ...conv, otherUser: null, members };
+    }
+
     const otherPart = (allParts || []).find(p => p.user_id !== currentUser.id);
     if (otherPart) {
       const { data: profile } = await sb.from('profiles_public').select('id, username').eq('id', otherPart.user_id).single();
-      return { ...conv, otherUser: profile };
+      return { ...conv, otherUser: profile, members: allParts || [] };
     }
-    return { ...conv, otherUser: null };
+    return { ...conv, otherUser: null, members: allParts || [] };
   }));
 
   conversations = enriched;
   renderChats();
 }
 
+/** Display name for a conversation row — group name, or the other user's @username. */
+function conversationLabel(conv) {
+  if (conv.is_group) return conv.name || 'Group chat';
+  return conv.otherUser ? '@' + conv.otherUser.username : 'Conversation';
+}
+
+function conversationSubtitle(conv) {
+  if (conv.is_group) {
+    const memberCount = (conv.members || []).length;
+    return `${memberCount} member${memberCount === 1 ? '' : 's'}`;
+  }
+  const online = conv.otherUser ? onlineUserIds.has(conv.otherUser.id) : false;
+  return online ? 'Online' : 'Offline';
+}
+
 function renderChats() {
   panelChats.innerHTML = '';
-  if (conversations.length === 0) { panelChats.innerHTML = '<div class="rowMuted">No chats yet. Add a friend to get started.</div>'; return; }
+  if (conversations.length === 0) { panelChats.innerHTML = '<div class="rowMuted">No chats yet. Add a friend or start a group to get started.</div>'; return; }
   conversations.forEach(conv => {
+    const isGroup = conv.is_group;
     const other = conv.otherUser;
-    const name = other ? '@' + escapeHtml(other.username) : 'Conversation';
-    const online = other ? onlineUserIds.has(other.id) : false;
+    const label = escapeHtml(conversationLabel(conv));
+    const online = !isGroup && other ? onlineUserIds.has(other.id) : false;
     const item = document.createElement('div');
     item.className = 'rowItem' + (conv.id === activeConversationId ? ' active' : '');
     item.innerHTML = `
-      <div class="avatar">${escapeHtml(initials(other ? other.username : '?'))}<span class="presenceDot ${online ? 'online' : ''}"></span></div>
-      <div class="rowText"><div class="name">${name}</div><div class="preview">${online ? 'Online' : 'Offline'}</div></div>`;
-    item.addEventListener('click', () => openConversation(conv.id, other));
+      <div class="avatar${isGroup ? ' groupAvatar' : ''}">${isGroup ? '👥' : escapeHtml(initials(other ? other.username : '?'))}${!isGroup ? `<span class="presenceDot ${online ? 'online' : ''}"></span>` : ''}</div>
+      <div class="rowText"><div class="name">${label}${isGroup ? '<span class="groupTag">Group</span>' : ''}</div><div class="preview">${escapeHtml(conversationSubtitle(conv))}</div></div>`;
+    item.addEventListener('click', () => openConversation(conv.id, other, conv));
     panelChats.appendChild(item);
   });
 }
 
 async function openChatWithFriend(friend) {
   await loadConversations();
-  const existing = conversations.find(c => c.otherUser && c.otherUser.id === friend.id);
+  const existing = conversations.find(c => !c.is_group && c.otherUser && c.otherUser.id === friend.id);
   if (existing) {
-    openConversation(existing.id, existing.otherUser);
+    openConversation(existing.id, existing.otherUser, existing);
   } else {
     const convId = await ensureConversationWith(friend.id);
     if (!convId) return;
     await loadConversations();
-    openConversation(convId, { id: friend.id, username: friend.username });
+    const conv = conversations.find(c => c.id === convId);
+    openConversation(convId, { id: friend.id, username: friend.username }, conv);
   }
 }
 
 /**
- * Makes sure the current user can decrypt this conversation, and — if the
- * other participant couldn't be given the key at creation time because
- * they hadn't generated an identity yet — shares it with them now that
- * they may have caught up. Failures here are logged, not thrown: an
- * unreadable conversation shouldn't block opening the chat pane itself,
- * decryptMessageSafe already shows a visible placeholder per-message.
+ * Makes sure the current user can decrypt this conversation, and — if any
+ * participant couldn't be given the key at creation time because they
+ * hadn't generated an identity yet (or, for a group, joined later via
+ * addGroupMember) — shares it with them now that they may have caught up.
+ * Failures here are logged, not thrown: an unreadable conversation
+ * shouldn't block opening the chat pane itself, decryptMessageSafe
+ * already shows a visible placeholder per-message.
  */
-async function ensureConvKeyForOpen(convId, otherUserId) {
+async function ensureConvKeyForOpen(convId, otherUserIds) {
+  const targetIds = otherUserIds || [];
   let haveKey = true;
   try {
     await E2EE.getConversationKey(sb, convId);
@@ -1584,61 +1774,266 @@ async function ensureConvKeyForOpen(convId, otherUserId) {
 
     if (!count) {
       // Nobody has a key for this conversation yet — safe to bootstrap
-      // one from scratch and wrap it for both participants (or just me,
-      // if the other side hasn't generated an identity yet — they'll be
-      // caught up automatically below, or next time they open the chat).
+      // one from scratch and wrap it for every participant with a
+      // public_key uploaded already (others are caught up below, or next
+      // time they open the chat).
       try {
-        const participantIds = otherUserId ? [currentUser.id, otherUserId] : [currentUser.id];
-        await E2EE.createConversationKey(sb, convId, participantIds);
+        await E2EE.createConversationKey(sb, convId, [currentUser.id, ...targetIds]);
       } catch (err) {
         console.error('Failed to create an encryption key for this conversation:', err);
         return;
       }
     } else {
-      // A key already exists, held by the other participant, but hasn't
+      // A key already exists, held by other participants, but hasn't
       // been wrapped for me yet. I can't create my own without
-      // orphaning their message history — nothing to do on my end here;
-      // it gets shared automatically the next time THEY open this chat
-      // (see the block below, which runs on their side symmetrically).
-      console.warn('Waiting for the other participant to share the encryption key with this device.');
+      // orphaning the existing message history — nothing to do on my
+      // end here; it gets shared automatically the next time one of
+      // THEM opens this chat (see the loop below, which runs on their
+      // side symmetrically).
+      console.warn('Waiting for another participant to share the encryption key with this device.');
       return;
     }
   }
 
-  if (!otherUserId) return;
-  try {
-    const { data: theirRow } = await sb.from('conversation_keys')
-      .select('user_id').eq('conversation_id', convId).eq('user_id', otherUserId).maybeSingle();
-    if (!theirRow) {
-      const { data: theirProfile } = await sb.from('profiles_public').select('public_key').eq('id', otherUserId).single();
-      if (theirProfile?.public_key) {
-        await E2EE.shareKeyWith(sb, convId, otherUserId);
+  for (const uid of targetIds) {
+    try {
+      const { data: theirRow } = await sb.from('conversation_keys')
+        .select('user_id').eq('conversation_id', convId).eq('user_id', uid).maybeSingle();
+      if (!theirRow) {
+        const { data: theirProfile } = await sb.from('profiles_public').select('public_key').eq('id', uid).single();
+        if (theirProfile?.public_key) {
+          await E2EE.shareKeyWith(sb, convId, uid);
+        }
       }
+    } catch (err) {
+      console.error('Could not share the encryption key with a participant yet:', err);
     }
-  } catch (err) {
-    console.error('Could not share the encryption key with the other participant yet:', err);
   }
 }
 
-async function openConversation(convId, other) {
+async function openConversation(convId, other, conv) {
   activeConversationId = convId;
-  activeFriendId = other ? other.id : null;
-  activeFriendName = other ? other.username : null;
+  activeConversation = conv || null;
+  const isGroup = !!(conv && conv.is_group);
+  activeFriendId = isGroup ? null : (other ? other.id : null);
+  activeFriendName = isGroup ? null : (other ? other.username : null);
   clearPendingAttachment();
   renderChats(); renderFriends();
 
   chatHeader.style.display = 'flex';
-  chatAvatar.textContent = initials(other ? other.username : '?');
-  chatTitle.textContent = other ? '@' + other.username : 'Conversation';
-  if (activeFriendId) setPresenceUI(activeFriendId);
+  if (isGroup) {
+    chatAvatar.className = 'avatar groupAvatar';
+    chatAvatar.textContent = '👥';
+    chatTitle.textContent = conv.name || 'Group chat';
+    groupMembersBtn.style.display = 'flex';
+    voiceCallBtn.disabled = true;
+    videoCallBtn.disabled = true;
+    voiceCallBtn.title = 'Voice calls are 1:1 only for now';
+    videoCallBtn.title = 'Video calls are 1:1 only for now';
+    chatInfo.classList.add('clickable');
+    setGroupPresenceUI(conv);
+  } else {
+    chatAvatar.className = 'avatar';
+    chatAvatar.textContent = initials(other ? other.username : '?');
+    chatTitle.textContent = other ? '@' + other.username : 'Conversation';
+    groupMembersBtn.style.display = 'none';
+    voiceCallBtn.disabled = false;
+    videoCallBtn.disabled = false;
+    voiceCallBtn.title = 'Voice call';
+    videoCallBtn.title = 'Video call';
+    chatInfo.classList.remove('clickable');
+    if (activeFriendId) setPresenceUI(activeFriendId);
+  }
 
   emptyState.style.display = 'none';
   messagesEl.style.display = 'flex';
   composer.style.display = 'flex';
 
-  await ensureConvKeyForOpen(convId, activeFriendId);
+  const otherIds = isGroup
+    ? (conv.members || []).map(m => m.user_id).filter(id => id !== currentUser.id)
+    : (activeFriendId ? [activeFriendId] : []);
+  await ensureConvKeyForOpen(convId, otherIds);
   await loadMessages(convId);
   subscribeToMessages(convId);
+}
+
+chatInfo.addEventListener('click', () => {
+  if (activeConversation && activeConversation.is_group) openGroupMembersModal();
+});
+groupMembersBtn.addEventListener('click', openGroupMembersModal);
+
+// ---------- New Group modal ----------
+newGroupBtn.addEventListener('click', openNewGroupModal);
+closeNewGroupBtn.addEventListener('click', () => newGroupModal.classList.remove('active'));
+
+function openNewGroupModal() {
+  groupNameField.value = '';
+  groupMemberFilter.value = '';
+  newGroupError.textContent = '';
+  groupPickerSelected = new Set();
+  renderGroupFriendPicker();
+  newGroupModal.classList.add('active');
+}
+
+function renderGroupFriendPicker() {
+  const filter = groupMemberFilter.value.trim().toLowerCase();
+  const visible = friends.filter(f => !filter || f.username.toLowerCase().includes(filter));
+
+  groupFriendPicker.innerHTML = '';
+  if (friends.length === 0) {
+    groupFriendPicker.innerHTML = '<div class="rowMuted">Add some friends first to start a group.</div>';
+  } else if (visible.length === 0) {
+    groupFriendPicker.innerHTML = '<div class="rowMuted">No friends match that filter.</div>';
+  } else {
+    visible.forEach(f => {
+      const row = document.createElement('label');
+      row.className = 'pickRow';
+      row.innerHTML = `
+        <input type="checkbox" ${groupPickerSelected.has(f.id) ? 'checked' : ''}>
+        <div class="avatar" style="width:28px;height:28px;font-size:11px;">${escapeHtml(initials(f.username))}</div>
+        <div class="name">@${escapeHtml(f.username)}</div>`;
+      row.querySelector('input').addEventListener('change', (e) => {
+        if (e.target.checked) groupPickerSelected.add(f.id); else groupPickerSelected.delete(f.id);
+        groupSelectedCount.textContent = `${groupPickerSelected.size} selected`;
+      });
+      groupFriendPicker.appendChild(row);
+    });
+  }
+  groupSelectedCount.textContent = `${groupPickerSelected.size} selected`;
+}
+groupMemberFilter.addEventListener('input', renderGroupFriendPicker);
+
+createGroupBtn.addEventListener('click', async () => {
+  newGroupError.textContent = '';
+  const name = groupNameField.value.trim();
+  if (!name) { newGroupError.textContent = 'Give the group a name.'; return; }
+  if (groupPickerSelected.size < 2) { newGroupError.textContent = 'Pick at least 2 friends to make a group (fewer than that, just message them directly).'; return; }
+
+  createGroupBtn.disabled = true;
+  try {
+    const convId = await createGroupConversation(name, Array.from(groupPickerSelected));
+    newGroupModal.classList.remove('active');
+    await loadConversations();
+    const conv = conversations.find(c => c.id === convId);
+    openConversation(convId, null, conv);
+  } catch (err) {
+    console.error('Failed to create group:', err);
+    newGroupError.textContent = err.message || 'Failed to create group.';
+  } finally {
+    createGroupBtn.disabled = false;
+  }
+});
+
+// ---------- Group members modal ----------
+function openGroupMembersModal() {
+  if (!activeConversation || !activeConversation.is_group) return;
+  groupMembersMsg.textContent = '';
+  groupAddMemberInput.value = '';
+  groupMembersTitle.textContent = activeConversation.name || 'Group chat';
+  groupMembersSub.textContent = `${(activeConversation.members || []).length} members`;
+  renderGroupMembersList();
+  groupMembersModal.classList.add('active');
+}
+closeGroupMembersBtn.addEventListener('click', () => groupMembersModal.classList.remove('active'));
+
+function renderGroupMembersList() {
+  const conv = activeConversation;
+  const myRole = (conv.members || []).find(m => m.user_id === currentUser.id)?.role;
+  const iAmOwner = myRole === 'owner';
+
+  groupMembersList.innerHTML = '';
+  (conv.members || []).forEach(m => {
+    const isMe = m.user_id === currentUser.id;
+    const row = document.createElement('div');
+    row.className = 'memberRow';
+    row.innerHTML = `
+      <div class="avatar" style="width:30px;height:30px;font-size:11px;">${escapeHtml(initials(m.username))}</div>
+      <div class="rowText" style="flex:1;">
+        <div class="name">@${escapeHtml(m.username)}${isMe ? ' (you)' : ''}</div>
+      </div>
+      <span class="roleTag">${m.role === 'owner' ? 'Owner' : ''}</span>
+      ${iAmOwner && !isMe ? '<button class="removeBtn" title="Remove from group">✕</button>' : ''}`;
+    const removeBtn = row.querySelector('.removeBtn');
+    if (removeBtn) removeBtn.addEventListener('click', () => removeGroupMember(m.user_id, m.username));
+    groupMembersList.appendChild(row);
+  });
+}
+
+groupAddMemberBtn.addEventListener('click', async () => {
+  const username = groupAddMemberInput.value.trim();
+  groupMembersMsg.style.color = '';
+  if (!username) { groupMembersMsg.style.color = 'var(--danger)'; groupMembersMsg.textContent = 'Enter a username.'; return; }
+
+  const { data: target, error: lookupErr } = await sb.from('profiles_public').select('id, username').eq('username', username).single();
+  if (lookupErr || !target) { groupMembersMsg.style.color = 'var(--danger)'; groupMembersMsg.textContent = 'No user found.'; return; }
+  if ((activeConversation.members || []).some(m => m.user_id === target.id)) {
+    groupMembersMsg.style.color = 'var(--danger)'; groupMembersMsg.textContent = 'Already in this group.'; return;
+  }
+
+  groupAddMemberBtn.disabled = true;
+  try {
+    await addGroupMember(activeConversation.id, target.id);
+    groupMembersMsg.style.color = 'var(--online)';
+    groupMembersMsg.textContent = `Added @${target.username}.`;
+    groupAddMemberInput.value = '';
+    await loadConversations();
+    activeConversation = conversations.find(c => c.id === activeConversation.id) || activeConversation;
+    setGroupPresenceUI(activeConversation);
+    groupMembersSub.textContent = `${(activeConversation.members || []).length} members`;
+    renderGroupMembersList();
+  } catch (err) {
+    console.error('Add member failed:', err);
+    groupMembersMsg.style.color = 'var(--danger)';
+    groupMembersMsg.textContent = err.message || 'Failed to add member.';
+  } finally {
+    groupAddMemberBtn.disabled = false;
+  }
+});
+
+/**
+ * Adds a member via a SECURITY DEFINER RPC rather than a direct
+ * conversation_participants insert — same reasoning as the original
+ * create_conversation_with_participants function: keeps membership
+ * writes off the client's direct-insert path so RLS on that table
+ * doesn't need loosening (and doesn't reopen the 42501 recursion issue
+ * that direct participant writes ran into before).
+ */
+async function addGroupMember(conversationId, userId) {
+  const { error } = await sb.rpc('add_group_participant', {
+    p_conversation_id: conversationId,
+    p_user_id: userId
+  });
+  if (error) throw error;
+
+  try {
+    await E2EE.shareKeyWith(sb, conversationId, userId);
+  } catch (err) {
+    console.error('Could not share the encryption key with the new member yet (they may need a public_key first):', err);
+  }
+}
+
+async function removeGroupMember(userId, username) {
+  if (!confirm(`Remove @${username} from the group?`)) return;
+  groupMembersMsg.textContent = '';
+  try {
+    const { error } = await sb.rpc('remove_group_participant', {
+      p_conversation_id: activeConversation.id,
+      p_user_id: userId
+    });
+    if (error) throw error;
+    // conversation_keys cleanup for the removed member happens inside
+    // remove_group_participant itself — that table has no client-facing
+    // DELETE policy, so a direct delete from here would silently no-op.
+    await loadConversations();
+    activeConversation = conversations.find(c => c.id === activeConversation.id) || activeConversation;
+    groupMembersSub.textContent = `${(activeConversation.members || []).length} members`;
+    renderGroupMembersList();
+    setGroupPresenceUI(activeConversation);
+  } catch (err) {
+    console.error('Remove member failed:', err);
+    groupMembersMsg.style.color = 'var(--danger)';
+    groupMembersMsg.textContent = err.message || 'Failed to remove member.';
+  }
 }
 
 // ---------- Messages ----------
@@ -1669,6 +2064,9 @@ function renderMessage(msg) {
 
   const metaEl = document.createElement('div');
   metaEl.className = 'meta';
+  // In a group, the sender name is the only way to tell messages apart —
+  // it's already shown for every message (not just "theirs"), so no
+  // extra branching is needed here for the group case.
   metaEl.textContent = `${uname} · ${new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
   el.appendChild(metaEl);
 
