@@ -31,6 +31,7 @@ const SUPABASE_ANON_KEY =
 // Named `sb` (not `db`/`supabase`) to match SinkOS convention and avoid
 // colliding with the `supabase` global the CDN script attaches to window.
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+SinkOSSecurity.init(sb);
 
 // Update this when the sinkos.net migration lands for this module.
 const SINKOS_AUTH_BASE = "https://ravda-boeing.github.io/SinkOSAuth";
@@ -317,16 +318,10 @@ function bindAppEvents() {
 
 // ---- Auth gate --------------------------------------------------------------
 // Same inline-gate pattern used across SinkOS modules: an existing session
-// prompts for the OS password (checked against profiles.os_password_hash);
+// prompts for the OS password (verified server-side by the verify-os-password
+// Edge Function, which also counts wrong attempts);
 // no session shows an inline sign-in form; only accounts with no profile
 // row yet get redirected out to onboarding.
-
-async function sha256Hex(text) {
-  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
-  return Array.from(new Uint8Array(buf))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
 
 function showGateStep(step) {
   document.getElementById("core-auth-checking").style.display = step === "checking" ? "block" : "none";
@@ -368,7 +363,7 @@ async function initAuthGate() {
 
   const { data: profile } = await sb
     .from("profiles")
-    .select("os_password_hash")
+    .select("id")
     .eq("id", session.user.id)
     .single();
 
@@ -384,15 +379,33 @@ async function initAuthGate() {
 
   showGateStep("unlock");
   document.getElementById("core-auth-unlock-btn").addEventListener("click", async () => {
-    const pw = document.getElementById("core-auth-pw").value;
+    const pwInput = document.getElementById("core-auth-pw");
+    const btn = document.getElementById("core-auth-unlock-btn");
     const errEl = document.getElementById("core-auth-error");
+    const pw = pwInput.value;
     errEl.textContent = "";
-    const hash = await sha256Hex(pw);
-    if (hash === profile.os_password_hash) {
+    if (!pw) { errEl.textContent = "Enter your OS password."; return; }
+
+    btn.disabled = true;
+    const result = await SinkOSSecurity.verifyOsPassword(pw);
+    btn.disabled = false;
+
+    if (result.ok) {
       sessionStorage.setItem("sinkos_unlocked", session.user.id);
       await enterApp();
+      return;
+    }
+
+    pwInput.value = "";
+    if (result.no_password) {
+      location.href = `${SINKOS_AUTH_BASE}/onboarding.html?redirect_to=${encodeURIComponent(location.href)}`;
+    } else if (result.locked) {
+      errEl.textContent = `Too many attempts. Try again in ${Math.ceil((result.retry_after || 900) / 60)} min.`;
+    } else if (result.error) {
+      errEl.textContent = "Could not verify right now. Try again.";
     } else {
-      errEl.textContent = "Incorrect password.";
+      const left = result.attempts_left;
+      errEl.textContent = `Incorrect password. ${left} attempt${left === 1 ? "" : "s"} left.`;
     }
   });
 }
