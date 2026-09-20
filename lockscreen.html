@@ -1,189 +1,405 @@
-/* security-monitor.js
- *
- * Load on EVERY SinkOS page, as early as possible (right after the CSP meta tag), then call
- *   SinkOSSecurity.init(sb, { allowedScriptOrigins: ['https://cdnjs.cloudflare.com'] });
- * once SinkOSAuth has created the `sb` client.
- *
- * What it does:
- *   1. Listens for CSP violations and reports them (ignoring browser-extension noise).
- *   2. Detects being framed by a foreign origin (clickjacking) and hides the page.
- *   3. Watches for <script src> elements added at runtime from origins you haven't allowed.
- *   4. Exposes verifyOsPassword() so the OS password is checked on the server, not in the browser.
- *
- * It only REPORTS. It never decides to enter Safe Mode; the server scores the signals.
- * Signals are queued until a session exists, de-duplicated, and capped per page load.
- */
-(function () {
-  'use strict';
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sink OS — Locked</title>
+  <script src="./security-monitor.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600&display=swap');
 
-  if (window.SinkOSSecurity) return;
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-  const MAX_REPORTS_PER_PAGE = 30;
-  const DEDUPE_MS = 60000;
-  const FLUSH_MS = 2000;
-  const BATCH_SIZE = 10;
+    html, body {
+      height: 100%;
+      font-family: 'Inter', sans-serif;
+      overflow: hidden;
+    }
 
-  const st = {
-    sb: null,
-    queue: [],
-    sent: 0,
-    seen: new Map(),
-    timer: null,
-    allowedScriptOrigins: new Set([location.origin]),
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(160deg,
+        #b8cef8 0%, #c5d8fb 20%, #d8e8ff 40%,
+        #cfe0ff 60%, #b9ccf5 80%, #a8bef0 100%);
+      position: relative;
+    }
+
+    /* ── Animated background orbs ── */
+    .orb {
+      position: fixed;
+      border-radius: 50%;
+      filter: blur(60px);
+      opacity: 0.55;
+      animation: drift 12s ease-in-out infinite alternate;
+      pointer-events: none;
+    }
+    .orb1 { width: 520px; height: 520px; background: radial-gradient(circle, #93b8f8, transparent 70%); top: -120px; left: -80px; animation-delay: 0s; }
+    .orb2 { width: 440px; height: 440px; background: radial-gradient(circle, #b8d4ff, transparent 70%); bottom: -80px; right: -60px; animation-delay: -5s; }
+    .orb3 { width: 320px; height: 320px; background: radial-gradient(circle, #d0e4ff, transparent 70%); top: 40%; left: 58%; animation-delay: -3s; }
+    @keyframes drift {
+      0%   { transform: translate(0, 0) scale(1); }
+      100% { transform: translate(30px, 20px) scale(1.08); }
+    }
+
+    /* ── Time & Date ── */
+    .time-block {
+      position: fixed;
+      top: 12%;
+      left: 50%;
+      transform: translateX(-50%);
+      text-align: center;
+      z-index: 3;
+      user-select: none;
+      pointer-events: none;
+    }
+    .time-display {
+      font-size: clamp(56px, 8vw, 88px);
+      font-weight: 200;
+      color: rgba(15, 35, 90, 0.82);
+      letter-spacing: -0.03em;
+      line-height: 1;
+      text-shadow: 0 2px 20px rgba(80, 120, 200, 0.15);
+    }
+    .date-display {
+      font-size: 16px;
+      font-weight: 300;
+      color: rgba(15, 35, 90, 0.5);
+      letter-spacing: 0.04em;
+      margin-top: 8px;
+    }
+
+    /* ── Liquid glass card ── */
+    .glass-card {
+      position: relative;
+      z-index: 2;
+      width: 340px;
+      border-radius: 28px;
+      padding: 36px 32px 32px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin-top: 160px;
+
+      background: linear-gradient(145deg,
+        rgba(255,255,255,0.62) 0%,
+        rgba(255,255,255,0.38) 50%,
+        rgba(255,255,255,0.52) 100%);
+      backdrop-filter: blur(32px) saturate(1.6);
+      -webkit-backdrop-filter: blur(32px) saturate(1.6);
+
+      border: 1px solid rgba(255,255,255,0.75);
+      box-shadow:
+        0 2px 0 rgba(255,255,255,0.8) inset,
+        0 -1px 0 rgba(255,255,255,0.3) inset,
+        1px 0 0 rgba(255,255,255,0.5) inset,
+        0 24px 48px rgba(100,140,220,0.18),
+        0 8px 20px rgba(80,120,200,0.12);
+    }
+
+    .glass-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 16px; right: 16px;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.9), transparent);
+      border-radius: 1px;
+    }
+
+    /* ── Avatar ── */
+    .avatar {
+      width: 64px; height: 64px;
+      border-radius: 50%;
+      background: linear-gradient(145deg, rgba(255,255,255,0.7), rgba(210,228,255,0.6));
+      border: 1.5px solid rgba(255,255,255,0.85);
+      box-shadow: 0 4px 16px rgba(100,140,220,0.2), 0 1px 0 rgba(255,255,255,0.9) inset;
+      display: flex; align-items: center; justify-content: center;
+      margin-bottom: 14px;
+    }
+    .avatar svg { color: #3a6fc4; opacity: 0.65; }
+
+    .ls-username {
+      font-size: 17px;
+      font-weight: 500;
+      color: #1c2d54;
+      letter-spacing: -0.01em;
+      margin-bottom: 4px;
+    }
+    .ls-hint {
+      font-size: 12px;
+      color: rgba(40, 70, 140, 0.5);
+      margin-bottom: 24px;
+    }
+
+    /* ── Password input ── */
+    .pw-wrap { position: relative; width: 100%; margin-bottom: 10px; }
+    .pw-input {
+      width: 100%;
+      padding: 12px 44px 12px 16px;
+      border-radius: 14px;
+      font-family: 'Inter', sans-serif;
+      font-size: 14px;
+      color: #1c2d54;
+      outline: none;
+      letter-spacing: 0.05em;
+      background: linear-gradient(145deg, rgba(255,255,255,0.55), rgba(255,255,255,0.35));
+      border: 1px solid rgba(255,255,255,0.8);
+      box-shadow: 0 1px 0 rgba(255,255,255,0.7) inset, 0 4px 12px rgba(100,140,220,0.1);
+      transition: all 0.2s ease;
+    }
+    .pw-input:focus {
+      background: linear-gradient(145deg, rgba(255,255,255,0.72), rgba(255,255,255,0.52));
+      border-color: rgba(255,255,255,0.95);
+      box-shadow: 0 1px 0 rgba(255,255,255,0.9) inset, 0 0 0 3px rgba(100,150,240,0.18), 0 4px 12px rgba(100,140,220,0.15);
+    }
+    .pw-input::placeholder { color: rgba(40,70,140,0.32); letter-spacing: normal; }
+    .eye-btn {
+      position: absolute; right: 14px; top: 50%; transform: translateY(-50%);
+      background: none; border: none; cursor: pointer; padding: 0;
+      color: rgba(40,70,140,0.38); transition: color 0.15s;
+      display: flex; align-items: center;
+    }
+    .eye-btn:hover { color: rgba(40,70,140,0.7); }
+
+    .err-msg {
+      font-size: 11px;
+      color: rgba(170, 30, 30, 0.85);
+      min-height: 18px;
+      text-align: center;
+      margin-bottom: 8px;
+    }
+
+    /* ── Unlock button ── */
+    .unlock-btn {
+      width: 100%;
+      padding: 13px;
+      border-radius: 14px;
+      border: none;
+      cursor: pointer;
+      font-family: 'Inter', sans-serif;
+      font-size: 14px;
+      font-weight: 500;
+      letter-spacing: 0.01em;
+      color: #fff;
+      margin-bottom: 18px;
+      background: linear-gradient(145deg, rgba(70,120,220,0.85), rgba(50,100,200,0.75));
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      border: 1px solid rgba(120,170,255,0.5);
+      box-shadow: 0 1px 0 rgba(180,210,255,0.5) inset, 0 6px 20px rgba(60,100,200,0.3);
+      transition: all 0.18s ease;
+    }
+    .unlock-btn:hover {
+      background: linear-gradient(145deg, rgba(80,130,230,0.9), rgba(60,110,210,0.82));
+      box-shadow: 0 1px 0 rgba(180,210,255,0.6) inset, 0 8px 24px rgba(60,100,200,0.38);
+      transform: translateY(-1px);
+    }
+    .unlock-btn:active {
+      transform: translateY(0);
+      box-shadow: 0 1px 0 rgba(180,210,255,0.4) inset, 0 4px 12px rgba(60,100,200,0.25);
+    }
+    .unlock-btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+
+    /* ── Divider ── */
+    .card-divider {
+      width: 100%;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.6), transparent);
+      margin-bottom: 16px;
+    }
+
+    /* ── Switch account ── */
+    .switch-link {
+      font-size: 12px;
+      color: rgba(40, 70, 140, 0.45);
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-family: 'Inter', sans-serif;
+      transition: color 0.15s;
+    }
+    .switch-link:hover { color: rgba(40, 70, 140, 0.75); }
+
+    /* ── Shake animation ── */
+    @keyframes shake {
+      0%,100% { transform: translateX(0); }
+      15%  { transform: translateX(-7px); }
+      30%  { transform: translateX(7px); }
+      45%  { transform: translateX(-5px); }
+      60%  { transform: translateX(5px); }
+      75%  { transform: translateX(-2px); }
+      90%  { transform: translateX(2px); }
+    }
+    .shake { animation: shake 0.45s ease; }
+  </style>
+</head>
+<body>
+
+  <div class="orb orb1"></div>
+  <div class="orb orb2"></div>
+  <div class="orb orb3"></div>
+
+  <div class="time-block">
+    <div class="time-display" id="ls-time">12:00 AM</div>
+    <div class="date-display" id="ls-date">Monday, 1 January 2025</div>
+  </div>
+
+  <div class="glass-card" id="glass-card">
+    <div class="avatar">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+        <circle cx="12" cy="7" r="4"/>
+      </svg>
+    </div>
+
+    <div class="ls-username" id="ls-username">user</div>
+    <div class="ls-hint">Enter your OS password</div>
+
+    <div class="pw-wrap">
+      <input class="pw-input" type="password" id="ls-pw"
+             placeholder="Password" autocomplete="off"
+             onkeydown="if(event.key==='Enter') tryUnlock()">
+      <button class="eye-btn" id="eye-btn" onclick="toggleEye()" aria-label="Show password">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+          <circle cx="12" cy="12" r="3"/>
+        </svg>
+      </button>
+    </div>
+
+    <div class="err-msg" id="ls-err"></div>
+
+    <button class="unlock-btn" id="unlock-btn" onclick="tryUnlock()">Unlock</button>
+
+    <div class="card-divider"></div>
+
+    <button class="switch-link" onclick="switchAccount()">Switch account</button>
+  </div>
+
+<script type="module">
+  import { supabase } from './supabase.js';
+
+  SinkOSSecurity.init(supabase);
+
+  const DAYS   = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const pad = n => String(n).padStart(2, '0');
+
+  function tick() {
+    const now  = new Date();
+    let h      = now.getHours();
+    const m    = now.getMinutes();
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    h = h % 12 || 12;
+    document.getElementById('ls-time').textContent = `${h}:${pad(m)} ${ampm}`;
+    document.getElementById('ls-date').textContent =
+      `${DAYS[now.getDay()]}, ${now.getDate()} ${MONTHS[now.getMonth()]} ${now.getFullYear()}`;
+  }
+  tick();
+  setInterval(tick, 10000);
+
+  async function loadUsername() {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) { window.location.href = './login.html'; return; }
+    const { data } = await supabase
+      .from('profiles')
+      .select('username')
+      .eq('id', session.user.id)
+      .single();
+    if (data) document.getElementById('ls-username').textContent = data.username;
+  }
+  loadUsername();
+
+  const EYE_OPEN = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
+  const EYE_SHUT = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`;
+
+  window.toggleEye = function() {
+    const inp = document.getElementById('ls-pw');
+    const btn = document.getElementById('eye-btn');
+    if (inp.type === 'password') { inp.type = 'text';     btn.innerHTML = EYE_SHUT; }
+    else                         { inp.type = 'password'; btn.innerHTML = EYE_OPEN; }
   };
 
-  const EXTENSION_RE = /^(chrome-extension|moz-extension|safari-web-extension|safari-extension|ms-browser-extension):/i;
-  const isExtension = (u) => EXTENSION_RE.test(String(u || ''));
-  const stripQuery = (u) => String(u || '').split(/[?#]/)[0];
+  function shake() {
+    const card = document.getElementById('glass-card');
+    card.classList.remove('shake');
+    void card.offsetWidth;
+    card.classList.add('shake');
+  }
 
-  function deviceId() {
-    try {
-      let id = localStorage.getItem('sinkos_device_id');
-      if (!id) {
-        id = crypto.randomUUID();
-        localStorage.setItem('sinkos_device_id', id);
+  // TODO: set this to your real onboarding page (used when an account has no OS password yet)
+  const ONBOARDING_URL = './onboarding.html';
+
+  // The OS password is now checked on the server (verify-os-password Edge Function).
+  // The browser never downloads or stores the stored hash, and the server counts wrong attempts.
+  window.tryUnlock = async function() {
+    const pw  = document.getElementById('ls-pw').value;
+    const err = document.getElementById('ls-err');
+    const btn = document.getElementById('unlock-btn');
+    err.textContent = '';
+
+    if (!pw) { err.textContent = 'Enter your password.'; shake(); return; }
+
+    btn.textContent = 'Unlocking…';
+    btn.disabled    = true;
+
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) { window.location.href = './login.html'; return; }
+
+    const result = await SinkOSSecurity.verifyOsPassword(pw);
+
+    if (result.ok) {
+      sessionStorage.setItem('sinkos_unlocked', String(Date.now()));
+      const returnTo = sessionStorage.getItem('sinkos_return_to');
+      if (returnTo) {
+        sessionStorage.removeItem('sinkos_return_to');
+        window.location.href = returnTo;
+      } else {
+        window.location.href = './end.html';
       }
-      return id;
-    } catch (_) {
-      return 'unknown';
+      return;
     }
-  }
 
-  // ---- reporting -----------------------------------------------------------
+    document.getElementById('ls-pw').value = '';
 
-  function report(type, detail) {
-    detail = detail || {};
-    const key = type + '|' + (detail.directive || '') + '|' + (detail.blocked || detail.src || '');
-    const now = Date.now();
-    if (st.seen.has(key) && now - st.seen.get(key) < DEDUPE_MS) return;
-    st.seen.set(key, now);
-    if (st.sent + st.queue.length >= MAX_REPORTS_PER_PAGE) return;
-    st.queue.push({ type: type, detail: detail });
-    schedule();
-  }
+    // Account has no OS password yet (onboarding not finished)
+    if (result.no_password) { window.location.href = ONBOARDING_URL; return; }
 
-  function schedule() {
-    if (!st.timer) st.timer = setTimeout(flush, FLUSH_MS);
-  }
-
-  async function flush() {
-    st.timer = null;
-    if (!st.sb || !st.queue.length) return;
-
-    let session = null;
-    try {
-      const res = await st.sb.auth.getSession();
-      session = res && res.data && res.data.session;
-    } catch (_) { return; }
-    if (!session) return; // keep queued until someone signs in
-
-    const batch = st.queue.splice(0, BATCH_SIZE);
-    try {
-      const { error } = await st.sb.functions.invoke('security-report', {
-        body: { device_id: deviceId(), events: batch },
-      });
-      if (error) throw error;
-      st.sent += batch.length;
-    } catch (_) {
-      // Drop the batch. Never retry in a loop: a broken reporter must not become a noise source.
+    // Too many wrong attempts: the server refuses to even check until the lockout ends
+    if (result.locked) {
+      const secs = Math.max(1, result.retry_after || 900);
+      err.textContent = `Too many attempts. Try again in ${Math.ceil(secs / 60)} min.`;
+      btn.textContent = 'Locked';
+      shake();
+      setTimeout(() => {
+        err.textContent = '';
+        btn.textContent = 'Unlock';
+        btn.disabled    = false;
+      }, secs * 1000);
+      return;
     }
-    if (st.queue.length) schedule();
-  }
 
-  // ---- 1. CSP violations ---------------------------------------------------
-
-  document.addEventListener('securitypolicyviolation', function (e) {
-    const blocked = stripQuery(e.blockedURI);
-    const source = stripQuery(e.sourceFile);
-    if (isExtension(blocked) || isExtension(source)) return; // extensions cause a lot of false positives
-
-    // Visible in the console so you can see what to allow while rolling the CSP out.
-    console.warn('[SinkOS CSP]', e.effectiveDirective, 'blocked:', blocked || '(inline)',
-      source ? '@ ' + source + ':' + e.lineNumber : '');
-
-    report('csp_violation', {
-      directive: String(e.effectiveDirective || '').slice(0, 60),
-      blocked: blocked.slice(0, 200) || 'inline',
-      source: source.slice(0, 200),
-      line: e.lineNumber | 0,
-      page: location.pathname.slice(0, 120),
-    });
-  });
-
-  // ---- 2. Framing by a foreign origin -------------------------------------
-  // Same-origin framing (e.g. the SinkOS desktop hosting its own apps) is fine and is not reported.
-
-  (function checkFraming() {
-    if (window.top === window.self) return;
-    let foreign = false;
-    try { void window.top.location.href; } catch (_) { foreign = true; } // cross-origin access throws
-    if (!foreign) return;
-
-    document.documentElement.style.display = 'none';
-    report('foreign_framing', { page: location.pathname.slice(0, 120) });
-    try { window.top.location = window.self.location; } catch (_) { /* sandboxed frame; stay hidden */ }
-  })();
-
-  // ---- 3. Runtime script injection ----------------------------------------
-  // Only sees scripts added AFTER this file runs, so keep it early. Covers <script src>, not inline.
-
-  function inspect(node) {
-    if (!node || node.nodeType !== 1) return;
-    const scripts = node.tagName === 'SCRIPT'
-      ? [node]
-      : (node.querySelectorAll ? node.querySelectorAll('script[src]') : []);
-    scripts.forEach(function (s) {
-      const src = s.src;
-      if (!src || isExtension(src)) return;
-      let u;
-      try { u = new URL(src, location.href); } catch (_) { return; }
-      if (st.allowedScriptOrigins.has(u.origin)) return;
-      report('unexpected_script', { src: (u.origin + u.pathname).slice(0, 200) });
-    });
-  }
-
-  new MutationObserver(function (muts) {
-    muts.forEach(function (m) { m.addedNodes.forEach(inspect); });
-  }).observe(document.documentElement, { childList: true, subtree: true });
-
-  // ---- 4. Server-side OS password check -----------------------------------
-  // IMPORTANT: sha256Hex must produce exactly what your old client-side check compared against
-  // profiles.os_password_hash. If the old code trimmed, salted, or lower-cased, mirror that here.
-
-  async function sha256Hex(text) {
-    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
-    return Array.from(new Uint8Array(buf)).map(function (b) { return b.toString(16).padStart(2, '0'); }).join('');
-  }
-
-  // Resolves to one of:
-  //   { ok: true }
-  //   { ok: false, attempts_left, locked, retry_after, state }
-  //   { ok: false, locked: true, retry_after }
-  //   { ok: false, no_password: true }        -> send them to onboarding
-  //   { ok: false, error: 'network' }
-  async function verifyOsPassword(plain) {
-    if (!st.sb) return { ok: false, error: 'not_initialised' };
-    try {
-      const { data, error } = await st.sb.functions.invoke('verify-os-password', {
-        body: { hash: await sha256Hex(plain), device_id: deviceId() },
-      });
-      if (error || !data) return { ok: false, error: 'network' };
-      return data;
-    } catch (_) {
-      return { ok: false, error: 'network' };
+    if (result.error) {
+      err.textContent = 'Could not verify right now. Try again.';
+    } else {
+      const left = result.attempts_left;
+      err.textContent = `Incorrect password. ${left} attempt${left === 1 ? '' : 's'} left.`;
     }
-  }
+    btn.textContent = 'Unlock';
+    btn.disabled    = false;
+    shake();
+  };
 
-  // ---- public API ----------------------------------------------------------
+  window.switchAccount = async function() {
+    sessionStorage.removeItem('os_pw_hash');
+    sessionStorage.removeItem('sinkos_unlocked');
+    await supabase.auth.signOut();
+    window.location.href = './login.html';
+  };
+</script>
 
-  function init(sb, opts) {
-    st.sb = sb;
-    ((opts && opts.allowedScriptOrigins) || []).forEach(function (o) { st.allowedScriptOrigins.add(o); });
-    try {
-      sb.auth.onAuthStateChange(function (event) { if (event === 'SIGNED_IN') schedule(); });
-    } catch (_) { /* ignore */ }
-    if (st.queue.length) schedule();
-  }
-
-  window.SinkOSSecurity = { init: init, report: report, deviceId: deviceId, verifyOsPassword: verifyOsPassword };
-})();
+</body>
+</html>
