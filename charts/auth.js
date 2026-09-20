@@ -5,7 +5,7 @@
      1. An active Supabase session already exists (user came from another
         SinkOS module / didn't fully log out)
           -> show the OS password (lock) prompt, checked against
-             profiles.os_password_hash. No redirect needed.
+             the server (verify-os-password Edge Function). No redirect needed.
 
      2. No Supabase session at all
           -> show an inline email/password form (signInWithPassword).
@@ -38,18 +38,11 @@ const PROFILES_TABLE = "profiles";
 const SINKOS_AUTH_URL = "https://ravda-boeing.github.io/SinkOSAuth/";
 
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+SinkOSSecurity.init(sb);
 
 // ---------------------------------------------------------------------------
 // Small helpers
 // ---------------------------------------------------------------------------
-
-async function sha256Hex(text) {
-  const buf = new TextEncoder().encode(text);
-  const digest = await crypto.subtle.digest("SHA-256", buf);
-  return Array.from(new Uint8Array(digest))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
 
 function currentUrlWithoutHash() {
   return window.location.origin + window.location.pathname;
@@ -70,7 +63,7 @@ function hideEl(id) { $(id).classList.add("hidden"); }
 window.SinkAuth = {
   sb,
   user: null,        // Supabase auth user object once unlocked
-  profile: null,      // row from `profiles` (username, os_password_hash, ...)
+  profile: null,      // row from `profiles` (username)
   ready: null,        // Promise, resolves once the gate has been passed
 };
 
@@ -90,7 +83,7 @@ function enterApp() {
 async function fetchProfile(userId) {
   const { data, error } = await sb
     .from(PROFILES_TABLE)
-    .select("username, os_password_hash")
+    .select("username")
     .eq("id", userId)
     .maybeSingle();
   if (error) {
@@ -132,13 +125,24 @@ async function attemptUnlock() {
   btn.disabled = true;
 
   try {
-    const hash = await sha256Hex(pw);
-    if (hash !== window.SinkAuth.profile?.os_password_hash) {
-      $("lock-error").textContent = "That password didn't match. Try again.";
+    const result = await SinkOSSecurity.verifyOsPassword(pw);
+    if (result.ok) {
+      sessionStorage.setItem(unlockedFlagKey(window.SinkAuth.user.id), "1");
+      enterApp();
       return;
     }
-    sessionStorage.setItem(unlockedFlagKey(window.SinkAuth.user.id), "1");
-    enterApp();
+
+    $("lock-password").value = "";
+    if (result.no_password) {
+      goToOnboarding();
+    } else if (result.locked) {
+      $("lock-error").textContent = `Too many attempts. Try again in ${Math.ceil((result.retry_after || 900) / 60)} min.`;
+    } else if (result.error) {
+      $("lock-error").textContent = "Could not verify right now. Try again.";
+    } else {
+      const left = result.attempts_left;
+      $("lock-error").textContent = `That password didn't match. ${left} attempt${left === 1 ? "" : "s"} left.`;
+    }
   } finally {
     btn.disabled = false;
   }
