@@ -303,7 +303,7 @@
 
   async function loadUsername() {
     const { data: { session } } = await supabase.auth.getSession();
-    if (!session) { window.location.href = './login.html'; return; }
+    if (!session) { window.location.href = '/SinkOSAuth/index.html'; return; }
     const { data } = await supabase
       .from('profiles')
       .select('username')
@@ -347,7 +347,7 @@
     btn.disabled    = true;
 
     const { data: { session } } = await supabase.auth.getSession();
-    if (!session) { window.location.href = './login.html'; return; }
+    if (!session) { window.location.href = '/SinkOSAuth/index.html'; return; }
 
     const result = await SinkOSSecurity.verifyOsPassword(pw);
 
@@ -358,7 +358,7 @@
         sessionStorage.removeItem('sinkos_return_to');
         window.location.href = returnTo;
       } else {
-        window.location.href = './end.html';
+        window.location.href = 'https://ravda-boeing.github.io/SinkOSV2PB1/desktopv2.html';
       }
       return;
     }
@@ -397,7 +397,7 @@
     sessionStorage.removeItem('os_pw_hash');
     sessionStorage.removeItem('sinkos_unlocked');
     await supabase.auth.signOut();
-    window.location.href = './login.html';
+    window.location.href = '/SinkOSAuth/index.html';
   };
 </script>
 
