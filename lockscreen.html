@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Sink OS — Locked</title>
+  <script src="./security-monitor.js"></script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600&display=swap');
 
@@ -281,6 +282,8 @@
 <script type="module">
   import { supabase } from './supabase.js';
 
+  SinkOSSecurity.init(supabase);
+
   const DAYS   = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
   const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
   const pad = n => String(n).padStart(2, '0');
@@ -327,11 +330,11 @@
     card.classList.add('shake');
   }
 
-  async function hashPassword(pw) {
-    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pw));
-    return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
-  }
+  // TODO: set this to your real onboarding page (used when an account has no OS password yet)
+  const ONBOARDING_URL = './onboarding.html';
 
+  // The OS password is now checked on the server (verify-os-password Edge Function).
+  // The browser never downloads or stores the stored hash, and the server counts wrong attempts.
   window.tryUnlock = async function() {
     const pw  = document.getElementById('ls-pw').value;
     const err = document.getElementById('ls-err');
@@ -343,21 +346,13 @@
     btn.textContent = 'Unlocking…';
     btn.disabled    = true;
 
-    let storedHash = sessionStorage.getItem('os_pw_hash');
-    if (!storedHash) {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) { window.location.href = './login.html'; return; }
-      const { data } = await supabase
-        .from('profiles')
-        .select('os_password_hash')
-        .eq('id', session.user.id)
-        .single();
-      storedHash = data?.os_password_hash ?? null;
-      if (storedHash) sessionStorage.setItem('os_pw_hash', storedHash);
-    }
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) { window.location.href = './login.html'; return; }
 
-    const inputHash = await hashPassword(pw);
-    if (inputHash === storedHash) {
+    const result = await SinkOSSecurity.verifyOsPassword(pw);
+
+    if (result.ok) {
+      sessionStorage.setItem('sinkos_unlocked', String(Date.now()));
       const returnTo = sessionStorage.getItem('sinkos_return_to');
       if (returnTo) {
         sessionStorage.removeItem('sinkos_return_to');
@@ -365,17 +360,42 @@
       } else {
         window.location.href = './end.html';
       }
-    } else {
-      err.textContent = 'Incorrect password. Try again.';
-      document.getElementById('ls-pw').value = '';
-      btn.textContent = 'Unlock';
-      btn.disabled    = false;
-      shake();
+      return;
     }
+
+    document.getElementById('ls-pw').value = '';
+
+    // Account has no OS password yet (onboarding not finished)
+    if (result.no_password) { window.location.href = ONBOARDING_URL; return; }
+
+    // Too many wrong attempts: the server refuses to even check until the lockout ends
+    if (result.locked) {
+      const secs = Math.max(1, result.retry_after || 900);
+      err.textContent = `Too many attempts. Try again in ${Math.ceil(secs / 60)} min.`;
+      btn.textContent = 'Locked';
+      shake();
+      setTimeout(() => {
+        err.textContent = '';
+        btn.textContent = 'Unlock';
+        btn.disabled    = false;
+      }, secs * 1000);
+      return;
+    }
+
+    if (result.error) {
+      err.textContent = 'Could not verify right now. Try again.';
+    } else {
+      const left = result.attempts_left;
+      err.textContent = `Incorrect password. ${left} attempt${left === 1 ? '' : 's'} left.`;
+    }
+    btn.textContent = 'Unlock';
+    btn.disabled    = false;
+    shake();
   };
 
   window.switchAccount = async function() {
     sessionStorage.removeItem('os_pw_hash');
+    sessionStorage.removeItem('sinkos_unlocked');
     await supabase.auth.signOut();
     window.location.href = './login.html';
   };
