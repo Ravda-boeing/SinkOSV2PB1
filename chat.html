@@ -380,6 +380,20 @@
       <div id="linkCodeDisplay" style="font-family:var(--font-display); font-size:28px; font-weight:700; letter-spacing:4px;"></div>
       <div style="font-size:10.5px; color:var(--text-faint); margin-top:8px;" id="linkWaitingText">Waiting for approval…</div>
     </div>
+    <!-- Only shown when this account already has an identity on another device and this
+         device has no local copy. Linking (above) is the safe path; resetting here is
+         destructive and requires typing CONFIRM, since it permanently drops history. -->
+    <div id="unlockConflictBox" style="display:none; text-align:center; margin-top:14px; padding-top:14px; border-top:1px solid var(--border, rgba(255,255,255,0.08));">
+      <div style="font-size:10.5px; color:var(--text-faint); margin-bottom:8px;">
+        No existing device to link from? Resetting starts a fresh key and permanently loses access to this account's message history on every device.
+      </div>
+      <button class="deviceLinkText" id="showResetBtn" style="color:#e05a5a;">Reset encryption instead (lose history)</button>
+      <div id="resetConfirmBox" style="display:none; margin-top:10px;">
+        <div class="field"><label>Type CONFIRM to reset</label><input type="text" id="resetConfirmInput" placeholder="CONFIRM" autocomplete="off"></div>
+        <div class="field"><label>Account password</label><input type="password" id="resetPasswordInput" placeholder="••••••••" autocomplete="current-password"></div>
+        <button class="primary" id="resetConfirmBtn" style="background:#e05a5a;">Permanently reset encryption</button>
+      </div>
+    </div>
     <div class="authError" id="unlockError"></div>
   </div>
 </div>
@@ -554,9 +568,28 @@ const E2EE = (() => {
    * identity stored, unlocks that instead (so this is safe to call on
    * every fresh sign-in regardless of whether it's a new or known device).
    */
-  async function ensureIdentity(sb, userId, osPassword) {
+  /** True if this ACCOUNT already has an identity (public_key) set, regardless of this device. */
+  async function hasRemoteIdentity(sb, userId) {
+    const { data } = await sb.from('profiles').select('public_key').eq('id', userId).single();
+    return !!data?.public_key;
+  }
+
+  async function ensureIdentity(sb, userId, osPassword, { allowOverwrite = false } = {}) {
     const existing = await idbGet('wrappedPrivateKey');
     if (existing) return unlockIdentity(osPassword);
+
+    // Refuse to silently mint a new identity when the account already has one on
+    // record. Overwriting profiles.public_key here would permanently orphan every
+    // conversation key wrapped to the old one, with no warning to the user.
+    if (!allowOverwrite && await hasRemoteIdentity(sb, userId)) {
+      const err = new Error(
+        'An encryption identity already exists for this account. Link this device ' +
+        'from an already-unlocked one, or explicitly reset (this permanently loses ' +
+        'access to existing message history).'
+      );
+      err.code = 'IDENTITY_EXISTS_REMOTELY';
+      throw err;
+    }
 
     const keyPair = await crypto.subtle.generateKey(
       { name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveKey', 'deriveBits']
@@ -847,7 +880,7 @@ const E2EE = (() => {
   }
 
   return {
-    hasLocalIdentity, ensureIdentity, unlockIdentity, lock,
+    hasLocalIdentity, hasRemoteIdentity, ensureIdentity, unlockIdentity, lock,
     createConversationKey, shareKeyWith, getConversationKey,
     encryptMessage, decryptMessage,
     linkNewDevice, approveDeviceLink, listDevices, revokeOtherDevices, getLocalDeviceId,
@@ -954,6 +987,12 @@ const linkInsteadBtn    = document.getElementById('linkInsteadBtn');
 const linkCodeBox       = document.getElementById('linkCodeBox');
 const linkCodeDisplay   = document.getElementById('linkCodeDisplay');
 const linkWaitingText   = document.getElementById('linkWaitingText');
+const unlockConflictBox = document.getElementById('unlockConflictBox');
+const showResetBtn      = document.getElementById('showResetBtn');
+const resetConfirmBox   = document.getElementById('resetConfirmBox');
+const resetConfirmInput = document.getElementById('resetConfirmInput');
+const resetPasswordInput = document.getElementById('resetPasswordInput');
+const resetConfirmBtn   = document.getElementById('resetConfirmBtn');
 const devicesModal      = document.getElementById('devicesModal');
 const devicesBtn        = document.getElementById('devicesBtn');
 const devicesListEl     = document.getElementById('devicesListEl');
@@ -1302,30 +1341,53 @@ async function handleSignedIn(user, password) {
   meLabel.textContent = profile ? '@' + profile.username : user.email;
   authScreen.style.display = 'none';
 
-  if (password) {
+  const hasLocal = await E2EE.hasLocalIdentity();
+
+  // Only auto-create silently when there is truly nothing to conflict with: no local
+  // key AND no key on the account yet. Any other case shows the unlock screen so the
+  // person sees what's happening instead of us guessing on their behalf.
+  if (password && !hasLocal && !profile?.public_key) {
     try {
       await E2EE.ensureIdentity(sb, user.id, password);
       await enterMainScreen();
+      return;
     } catch (err) {
       console.error('E2EE setup failed:', err);
-      promptUnlock(false);
     }
-    return;
   }
 
-  const hasLocal = await E2EE.hasLocalIdentity();
-  promptUnlock(!hasLocal);
+  if (hasLocal) {
+    promptUnlock('unlock');
+  } else {
+    promptUnlock(profile?.public_key ? 'conflict' : 'new');
+  }
 }
 
-function promptUnlock(isNewIdentity) {
-  unlockTitle.textContent = isNewIdentity ? 'Set Up Encryption' : 'Unlock Encryption';
-  unlockSub.textContent = isNewIdentity
-    ? 'This device has no local encryption key yet. Enter your account password to set one up, or link this device from an already-unlocked one.'
-    : 'Enter your password to decrypt your messages on this device.';
+// mode: 'unlock' (local key exists, just need the password) | 'new' (nothing exists
+// anywhere yet, first-ever device) | 'conflict' (account already has a key on another
+// device, but not this one — the case that used to silently overwrite it).
+function promptUnlock(mode) {
+  unlockScreen.dataset.mode = mode;
+  resetLinkUI();
+
+  if (mode === 'unlock') {
+    unlockTitle.textContent = 'Unlock Encryption';
+    unlockSub.textContent = 'Enter your password to decrypt your messages on this device.';
+  } else if (mode === 'new') {
+    unlockTitle.textContent = 'Set Up Encryption';
+    unlockSub.textContent = 'This device has no local encryption key yet. Enter your account password to set one up, or link this device from an already-unlocked one.';
+    linkInsteadBtn.style.display = 'inline-block';
+  } else {
+    unlockTitle.textContent = 'New Device Detected';
+    unlockSub.textContent = 'This account already has an encryption key set up on another device. Enter your account password, then link this device to keep access to your message history.';
+    unlockBtn.style.display = 'none'; // "Unlock" has nothing to unlock yet on this device
+    linkInsteadBtn.style.display = 'inline-block';
+    linkInsteadBtn.textContent = 'Link this device from another one';
+    unlockConflictBox.style.display = 'block';
+  }
+
   unlockPassword.value = '';
   unlockError.textContent = '';
-  resetLinkUI();
-  linkInsteadBtn.style.display = isNewIdentity ? 'inline-block' : 'none';
   unlockScreen.classList.add('active');
 }
 
@@ -1336,6 +1398,12 @@ function resetLinkUI() {
   linkCodeDisplay.textContent = '';
   linkWaitingText.textContent = 'Waiting for approval…';
   linkWaitingText.style.color = '';
+  unlockConflictBox.style.display = 'none';
+  resetConfirmBox.style.display = 'none';
+  resetConfirmInput.value = '';
+  resetPasswordInput.value = '';
+  showResetBtn.style.display = 'inline-block';
+  linkInsteadBtn.textContent = 'Link this device from another one instead';
 }
 
 unlockBtn.addEventListener('click', async () => {
@@ -1348,15 +1416,49 @@ unlockBtn.addEventListener('click', async () => {
     if (hasLocal) {
       await E2EE.unlockIdentity(pw);
     } else {
+      // ensureIdentity itself refuses to overwrite a remote identity, so this stays
+      // safe even if it's ever reached outside the 'new' state (button is hidden
+      // in 'conflict' mode, this is a second line of defence, not the only one).
       await E2EE.ensureIdentity(sb, currentUser.id, pw);
     }
     unlockScreen.classList.remove('active');
     await enterMainScreen();
   } catch (err) {
     console.error('Unlock failed:', err);
-    unlockError.textContent = 'Incorrect password.';
+    unlockError.textContent = err.code === 'IDENTITY_EXISTS_REMOTELY'
+      ? err.message
+      : 'Incorrect password.';
   } finally {
     unlockBtn.disabled = false;
+  }
+});
+
+// ---------- Destructive reset (conflict mode only) ----------
+
+showResetBtn.addEventListener('click', () => {
+  resetConfirmBox.style.display = 'block';
+  showResetBtn.style.display = 'none';
+});
+
+resetConfirmBtn.addEventListener('click', async () => {
+  unlockError.textContent = '';
+  if (resetConfirmInput.value.trim() !== 'CONFIRM') {
+    unlockError.textContent = 'Type CONFIRM (all caps) to proceed.';
+    return;
+  }
+  const pw = resetPasswordInput.value;
+  if (!pw) { unlockError.textContent = 'Enter your account password.'; return; }
+
+  resetConfirmBtn.disabled = true;
+  try {
+    await E2EE.ensureIdentity(sb, currentUser.id, pw, { allowOverwrite: true });
+    unlockScreen.classList.remove('active');
+    await enterMainScreen();
+  } catch (err) {
+    console.error('Reset failed:', err);
+    unlockError.textContent = 'Could not reset encryption. Check your password and try again.';
+  } finally {
+    resetConfirmBtn.disabled = false;
   }
 });
 unlockPassword.addEventListener('keydown', (e) => { if (e.key === 'Enter') unlockBtn.click(); });
