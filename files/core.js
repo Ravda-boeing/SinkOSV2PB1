@@ -1839,10 +1839,14 @@ async function initAuthGate() {
   
   // Delay 2 seconds so you can see console
   await new Promise(r => setTimeout(r, 2000));
+  
+  console.log("⏱️ Delay complete, continuing auth flow...");
 
   const {
     data: { session },
   } = await sb.auth.getSession();
+  
+  console.log("📍 Got session:", session?.user?.id);
 
   if (!session) {
     showGateStep("signin");
