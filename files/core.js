@@ -1,42 +1,1468 @@
 /**
  * Core — SinkOS file system browser
  *
- * Talks directly to Supabase from the browser using the public "anon" key.
- * This is the normal, intended way to use Supabase's anon key — it's a
- * public/client-safe key by design, not a secret. What actually protects
- * the data is the Row Level Security (RLS) policy on the `nodes` table
- * (see schema.sql). Each row carries a `user_id` and RLS restricts
- * select/write to rows the signed-in user owns.
+ * Includes integrated file sharing system (WebRTC peer-to-peer with recipient approval)
  *
- * Photos and Documents:
- * Items saved elsewhere in SinkOS (camera.html photos, Sink Writer
- * documents) automatically appear here under "Photos" / "Documents" —
- * that sync happens entirely in Postgres via triggers (see schema.sql),
- * so this file never writes to camera_photos/documents directly.
+ * Original Core functionality:
+ * - File explorer with folder navigation
+ * - Auth gate (sign in + OS password unlock)
+ * - File/folder management (create, delete)
  *
- * Deleting a node is destructive: schema.sql wires an AFTER DELETE
- * trigger on `nodes` that also removes the storage object and the
- * source-table row for any synced item, and that trigger fires for
- * cascaded deletes too (e.g. deleting a folder full of synced photos).
- * So the client just deletes the `nodes` row — everything downstream is
- * handled by the database.
+ * Added File Sharing:
+ * - 6-digit code-based discovery
+ * - Recipient approval consent step
+ * - WebRTC peer-to-peer transfer
+ * - Chunked file protocol
  */
 
-// ---- Supabase connection -------------------------------------------------
+// ============================================================
+// SUPABASE SETUP
+// ============================================================
 
 const SUPABASE_URL = "https://okknkixdbjsnqrwlfgzn.supabase.co";
 const SUPABASE_ANON_KEY =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9ra25raXhkYmpzbnFyd2xmZ3puIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI1NzgwNzQsImV4cCI6MjA5ODE1NDA3NH0.L2QDUnez8KjIM8yg9cB9cs-tTq6nedk3CCpuJBjWBEg";
 
-// Named `sb` (not `db`/`supabase`) to match SinkOS convention and avoid
-// colliding with the `supabase` global the CDN script attaches to window.
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-SinkOSSecurity.init(sb);
-
-// Update this when the sinkos.net migration lands for this module.
 const SINKOS_AUTH_BASE = "https://ravda-boeing.github.io/SinkOSAuth";
 
-// ---- Icons (same as the design preview) ----------------------------------
+// ============================================================
+// FILE SHARING CLASSES (Peer, FileSender, FileReceiver, ShareOrchestratorV2, ShareUI)
+// ============================================================
+
+class Peer {
+  constructor(config) {
+    this.config = config;
+    this.pc = new RTCPeerConnection({
+      iceServers: config.iceServers || [
+        { urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] },
+      ],
+    });
+    this.channel = null;
+    this.isChannelReady = false;
+    this.pendingIceCandidates = [];
+    this.setupEventHandlers();
+  }
+
+  setupEventHandlers() {
+    this.pc.addEventListener("icecandidate", (e) => {
+      if (e.candidate && this.config.onIceCandidate) {
+        this.config.onIceCandidate(e.candidate).catch((err) =>
+          this.error("Failed to send ICE candidate", err)
+        );
+      }
+    });
+
+    this.pc.addEventListener("connectionstatechange", () => {
+      this.config.onConnectionStateChange?.(this.pc.connectionState);
+      if (this.pc.connectionState === "failed") {
+        this.error(new Error("Peer connection failed"));
+      }
+    });
+
+    if (this.config.role === "sender") {
+      this.channel = this.pc.createDataChannel("file-transfer", { ordered: true });
+      this.setupChannelHandlers();
+    } else {
+      this.pc.addEventListener("datachannel", (e) => {
+        this.channel = e.channel;
+        this.setupChannelHandlers();
+      });
+    }
+  }
+
+  setupChannelHandlers() {
+    if (!this.channel) return;
+    this.channel.addEventListener("open", () => {
+      this.isChannelReady = true;
+      this.config.onChannelOpen?.(this.channel);
+    });
+    this.channel.addEventListener("close", () => {
+      this.isChannelReady = false;
+      this.config.onChannelClose?.();
+    });
+    this.channel.addEventListener("error", (e) => {
+      this.error(new Error("Data channel error: " + (e?.error || "unknown")));
+    });
+  }
+
+  async createOffer() {
+    try {
+      const offer = await this.pc.createOffer();
+      await this.pc.setLocalDescription(offer);
+      return JSON.stringify(offer);
+    } catch (err) {
+      throw new Error("Failed to create offer: " + err.message);
+    }
+  }
+
+  async acceptOffer(offerSdp) {
+    try {
+      const offer = JSON.parse(offerSdp);
+      await this.pc.setRemoteDescription(new RTCSessionDescription(offer));
+      const answer = await this.pc.createAnswer();
+      await this.pc.setLocalDescription(answer);
+      await this.flushPendingIceCandidates();
+      return JSON.stringify(answer);
+    } catch (err) {
+      throw new Error("Failed to accept offer: " + err.message);
+    }
+  }
+
+  async setAnswer(answerSdp) {
+    try {
+      const answer = JSON.parse(answerSdp);
+      await this.pc.setRemoteDescription(new RTCSessionDescription(answer));
+      await this.flushPendingIceCandidates();
+    } catch (err) {
+      throw new Error("Failed to set answer: " + err.message);
+    }
+  }
+
+  async addIceCandidate(candidateJson) {
+    try {
+      const candidateData = JSON.parse(candidateJson);
+      const candidate = new RTCIceCandidate(candidateData);
+      if (this.pc.remoteDescription && this.pc.remoteDescription.type) {
+        await this.pc.addIceCandidate(candidate);
+      } else {
+        this.pendingIceCandidates.push(candidate);
+      }
+    } catch (err) {
+      console.warn("Failed to add ICE candidate:", err);
+    }
+  }
+
+  async flushPendingIceCandidates() {
+    while (this.pendingIceCandidates.length > 0) {
+      const candidate = this.pendingIceCandidates.shift();
+      if (candidate) {
+        try {
+          await this.pc.addIceCandidate(candidate);
+        } catch (err) {
+          console.warn("Failed to add pending ICE candidate:", err);
+        }
+      }
+    }
+  }
+
+  send(data) {
+    if (!this.isChannelReady || !this.channel) {
+      throw new Error("Data channel not ready");
+    }
+    const MAX_CHUNK = 16 * 1024;
+    if (typeof data === "string") {
+      data = new TextEncoder().encode(data).buffer;
+    }
+    const buffer = data;
+    if (buffer.byteLength <= MAX_CHUNK) {
+      this.channel.send(buffer);
+      return;
+    }
+    for (let i = 0; i < buffer.byteLength; i += MAX_CHUNK) {
+      const chunk = buffer.slice(i, Math.min(i + MAX_CHUNK, buffer.byteLength));
+      this.channel.send(chunk);
+    }
+  }
+
+  isReady() {
+    return this.isChannelReady;
+  }
+
+  close() {
+    if (this.channel) {
+      this.channel.close();
+      this.channel = null;
+    }
+    this.pc.close();
+  }
+
+  onMessage(callback) {
+    if (!this.channel) {
+      throw new Error("Data channel not initialized");
+    }
+    const handler = (e) => {
+      callback(e.data);
+    };
+    this.channel.addEventListener("message", handler);
+    return () => {
+      if (this.channel) {
+        this.channel.removeEventListener("message", handler);
+      }
+    };
+  }
+
+  error(message, err) {
+    const error = new Error(message + (err ? ": " + err.message : ""));
+    this.config.onError?.(error);
+  }
+}
+
+const CHUNK_SIZE = 64 * 1024;
+const PROTOCOL_VERSION = 1;
+
+class FileSender {
+  constructor(peer, onEvent) {
+    this.peer = peer;
+    this.onEvent = onEvent;
+    this.currentFile = null;
+    this.currentChunkIndex = 0;
+  }
+
+  async sendFile(file) {
+    if (!this.peer.isReady()) {
+      throw new Error("Peer connection not ready");
+    }
+
+    this.currentFile = file;
+    this.currentChunkIndex = 0;
+
+    const fileInfo = {
+      name: file.name,
+      size: file.size,
+      mime: file.type,
+      lastModified: file.lastModified,
+    };
+
+    const infoMsg = {
+      type: "file-info",
+      version: PROTOCOL_VERSION,
+      fileInfo,
+    };
+    this.peer.send(JSON.stringify(infoMsg));
+
+    this.onEvent({ type: "started", file: fileInfo });
+
+    const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+
+    const unsubscribe = this.peer.onMessage(async (data) => {
+      if (typeof data === "string") {
+        try {
+          const msg = JSON.parse(data);
+          if (msg.type === "ack") {
+            this.currentChunkIndex = msg.chunkIndex + 1;
+            await this.sendNextChunk(totalChunks);
+          }
+        } catch (err) {
+          // ignore
+        }
+      }
+    });
+
+    await this.sendNextChunk(totalChunks);
+
+    return new Promise((resolve, reject) => {
+      const checkComplete = setInterval(() => {
+        if (this.currentFile === null || this.currentChunkIndex >= totalChunks) {
+          clearInterval(checkComplete);
+          unsubscribe();
+          this.onEvent({ type: "completed", file });
+          resolve();
+        }
+      }, 100);
+
+      setTimeout(() => {
+        clearInterval(checkComplete);
+        unsubscribe();
+        reject(new Error("File transfer timeout"));
+      }, 5 * 60 * 1000);
+    });
+  }
+
+  async sendNextChunk(totalChunks) {
+    if (!this.currentFile) return;
+    if (this.currentChunkIndex >= totalChunks) return;
+
+    const start = this.currentChunkIndex * CHUNK_SIZE;
+    const end = Math.min(start + CHUNK_SIZE, this.currentFile.size);
+    const blob = this.currentFile.slice(start, end);
+    const arrayBuffer = await blob.arrayBuffer();
+
+    this.sendChunkMessage({
+      chunkIndex: this.currentChunkIndex,
+      totalChunks,
+      data: arrayBuffer,
+    });
+
+    this.onEvent({
+      type: "progress",
+      progress: {
+        sentBytes: end,
+        totalBytes: this.currentFile.size,
+        percentComplete: Math.round((end / this.currentFile.size) * 100),
+      },
+    });
+  }
+
+  sendChunkMessage(msg) {
+    const typeCode = 1;
+    const headerSize = 14;
+    const totalSize = headerSize + msg.data.byteLength;
+    const buffer = new ArrayBuffer(totalSize);
+    const view = new DataView(buffer);
+    let offset = 0;
+
+    view.setUint8(offset, typeCode);
+    offset += 1;
+    view.setUint8(offset, msg.version || PROTOCOL_VERSION);
+    offset += 1;
+    view.setUint32(offset, msg.chunkIndex, true);
+    offset += 4;
+    view.setUint32(offset, msg.totalChunks, true);
+    offset += 4;
+    view.setUint32(offset, msg.data.byteLength, true);
+    offset += 4;
+
+    const srcView = new Uint8Array(msg.data);
+    const dstView = new Uint8Array(buffer, offset);
+    dstView.set(srcView);
+
+    this.peer.send(buffer);
+  }
+}
+
+class FileReceiver {
+  constructor(peer, onEvent) {
+    this.peer = peer;
+    this.onEvent = onEvent;
+    this.fileInfo = null;
+    this.chunks = new Map();
+    this.totalChunks = 0;
+    this.unsubscribe = null;
+  }
+
+  start() {
+    this.unsubscribe = this.peer.onMessage((data) => {
+      if (typeof data === "string") {
+        this.handleTextMessage(data);
+      } else {
+        this.handleBinaryMessage(data);
+      }
+    });
+  }
+
+  stop() {
+    if (this.unsubscribe) {
+      this.unsubscribe();
+      this.unsubscribe = null;
+    }
+  }
+
+  handleTextMessage(text) {
+    try {
+      const msg = JSON.parse(text);
+      if (msg.type === "file-info") {
+        this.fileInfo = msg.fileInfo;
+        this.chunks.clear();
+        this.totalChunks = 0;
+        this.onEvent({ type: "started", file: this.fileInfo });
+      }
+    } catch (err) {
+      console.warn("Failed to parse message:", text);
+    }
+  }
+
+  handleBinaryMessage(buffer) {
+    try {
+      const view = new DataView(buffer);
+      const typeCode = view.getUint8(0);
+
+      if (typeCode !== 1) return;
+
+      const version = view.getUint8(1);
+      if (version !== PROTOCOL_VERSION) {
+        throw new Error(`Protocol version mismatch: got ${version}, expected ${PROTOCOL_VERSION}`);
+      }
+
+      const chunkIndex = view.getUint32(2, true);
+      const totalChunks = view.getUint32(6, true);
+      const dataLength = view.getUint32(10, true);
+
+      const headerSize = 14;
+      if (buffer.byteLength < headerSize + dataLength) {
+        throw new Error("Truncated chunk message");
+      }
+
+      const chunkData = buffer.slice(headerSize, headerSize + dataLength);
+      this.chunks.set(chunkIndex, new Uint8Array(chunkData));
+      this.totalChunks = totalChunks;
+
+      const ackMsg = { type: "ack", version: PROTOCOL_VERSION, chunkIndex };
+      this.peer.send(JSON.stringify(ackMsg));
+
+      if (this.chunks.size === totalChunks) {
+        this.completeTransfer();
+      } else {
+        const receivedBytes = Array.from(this.chunks.values()).reduce(
+          (sum, chunk) => sum + chunk.byteLength,
+          0
+        );
+        this.onEvent({
+          type: "progress",
+          progress: {
+            sentBytes: receivedBytes,
+            totalBytes: this.fileInfo?.size || 0,
+            percentComplete: Math.round(
+              (receivedBytes / (this.fileInfo?.size || 1)) * 100
+            ),
+          },
+        });
+      }
+    } catch (err) {
+      this.onEvent({ type: "error", error: err });
+    }
+  }
+
+  completeTransfer() {
+    if (!this.fileInfo) {
+      throw new Error("No file info received");
+    }
+
+    const uint8Arrays = [];
+    for (let i = 0; i < this.totalChunks; i++) {
+      const chunk = this.chunks.get(i);
+      if (!chunk) {
+        throw new Error(`Missing chunk ${i}`);
+      }
+      uint8Arrays.push(chunk);
+    }
+
+    const blob = new Blob(uint8Arrays, { type: this.fileInfo.mime });
+    const file = new File([blob], this.fileInfo.name, {
+      type: this.fileInfo.mime,
+      lastModified: this.fileInfo.lastModified,
+    });
+
+    this.onEvent({ type: "completed", file });
+
+    this.chunks.clear();
+    this.fileInfo = null;
+  }
+}
+
+class ShareOrchestratorV2 {
+  constructor(config) {
+    this.config = config;
+    this.sessionId = null;
+    this.peer = null;
+    this.fileSender = null;
+    this.fileReceiver = null;
+    this.recipientId = null;
+    this.sessionChannel = null;
+    this.matchedResolver = null;
+    this.senderInfo = null;
+    this.fileInfo = null;
+  }
+
+  async initiateCodeShare(file) {
+    try {
+      this.fileInfo = {
+        name: file.name,
+        size: file.size,
+        mime: file.type,
+      };
+
+      const response = await this.config.supabase.functions.invoke("create-share-code", {
+        body: {
+          file_name: file.name,
+          file_size: file.size,
+          file_mime: file.type,
+        },
+      });
+
+      if (response.error) {
+        throw new Error("Failed to create share code: " + response.error.message);
+      }
+
+      const { session_id, code, expires_at } = response.data;
+      this.sessionId = session_id;
+
+      this.config.onEvent({
+        type: "code-generated",
+        code,
+        expiresAt: expires_at,
+      });
+
+      this.config.onEvent({ type: "waiting-for-recipient" });
+      this.setupSessionListener(session_id);
+
+      return { sessionId: session_id, code, expiresAt: expires_at };
+    } catch (err) {
+      throw new Error("Failed to initiate code share: " + (err?.message || String(err)));
+    }
+  }
+
+  async claimCodeShare(code) {
+    try {
+      const response = await this.config.supabase.functions.invoke("claim-share-code", {
+        body: { code },
+      });
+
+      if (response.error) {
+        throw new Error("Failed to claim code: " + response.error.message);
+      }
+
+      const { session_id } = response.data;
+      this.sessionId = session_id;
+
+      const { data: session, error: fetchError } = await this.config.supabase
+        .from("share_sessions")
+        .select("sender_id, file_name, file_size, file_mime")
+        .eq("id", session_id)
+        .single();
+
+      if (fetchError) {
+        throw fetchError;
+      }
+
+      const { data: senderProfile, error: profileError } = await this.config.supabase
+        .from("profiles")
+        .select("username, id")
+        .eq("id", session.sender_id)
+        .single();
+
+      if (profileError) {
+        throw profileError;
+      }
+
+      this.senderInfo = senderProfile;
+      this.fileInfo = {
+        name: session.file_name,
+        size: session.file_size,
+        mime: session.file_mime,
+      };
+
+      this.config.onEvent({
+        type: "approval-needed",
+        senderName: senderProfile.username,
+        fileName: session.file_name,
+        fileSize: session.file_size,
+      });
+
+      this.setupSessionListener(session_id);
+      await this.setupAsReceiver(session_id);
+    } catch (err) {
+      throw new Error("Failed to claim share: " + (err?.message || String(err)));
+    }
+  }
+
+  async respondToApproval(action, reason = null) {
+    if (!this.sessionId) {
+      throw new Error("No session active");
+    }
+
+    try {
+      const response = await this.config.supabase.functions.invoke(
+        "share-approval-response",
+        {
+          body: {
+            session_id: this.sessionId,
+            action,
+            reason,
+          },
+        }
+      );
+
+      if (response.error) {
+        throw new Error("Failed to respond to approval: " + response.error.message);
+      }
+
+      if (action === "accepted") {
+        this.config.onEvent({
+          type: "approval-granted",
+        });
+      } else {
+        this.config.onEvent({
+          type: "approval-denied",
+          reason,
+        });
+      }
+
+      return response.data;
+    } catch (err) {
+      throw new Error("Approval response failed: " + (err?.message || String(err)));
+    }
+  }
+
+  async waitForMatch() {
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error("Match timeout (5 minutes)"));
+      }, 5 * 60 * 1000);
+
+      this.matchedResolver = () => {
+        clearTimeout(timeout);
+        resolve();
+      };
+    });
+  }
+
+  async sendFile(file) {
+    if (!this.peer) {
+      throw new Error("No peer connection established");
+    }
+
+    if (!this.fileSender) {
+      this.fileSender = new FileSender(this.peer, (event) => {
+        this.config.onEvent(event);
+      });
+    }
+
+    await this.fileSender.sendFile(file);
+  }
+
+  close() {
+    if (this.fileReceiver) {
+      this.fileReceiver.stop();
+      this.fileReceiver = null;
+    }
+
+    if (this.peer) {
+      this.peer.close();
+      this.peer = null;
+    }
+
+    if (this.sessionChannel) {
+      this.config.supabase.removeChannel(this.sessionChannel);
+      this.sessionChannel = null;
+    }
+  }
+
+  setupSessionListener(sessionId) {
+    this.sessionChannel = this.config.supabase.channel("share-session-" + sessionId);
+
+    this.sessionChannel
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "share_sessions",
+          filter: `id=eq.${sessionId}`,
+        },
+        (payload) => {
+          this.handleSessionUpdate(payload.new);
+        }
+      )
+      .subscribe();
+  }
+
+  handleSessionUpdate(session) {
+    if (session.status === "matched" && !this.peer && session.sender_id === this.config.userId) {
+      this.setupAsSender(session.id, session.recipient_id).catch((err) => {
+        this.config.onEvent({
+          type: "connection-failed",
+          error: err.message,
+        });
+      });
+    }
+
+    if (session.status === "connected") {
+      if (this.matchedResolver) {
+        this.matchedResolver();
+        this.matchedResolver = null;
+      }
+    }
+
+    if (session.status === "declined") {
+      this.config.onEvent({
+        type: "share-declined",
+      });
+      this.close();
+    }
+  }
+
+  async setupAsSender(sessionId, recipientId) {
+    this.recipientId = recipientId;
+
+    this.peer = new Peer({
+      sessionId,
+      userId: this.config.userId,
+      otherUserId: recipientId,
+      role: "sender",
+      onIceCandidate: async (candidate) => {
+        await this.config.supabase.functions.invoke("share-write-ice", {
+          body: { session_id: sessionId, candidate: candidate.toJSON() },
+        });
+      },
+      onConnectionStateChange: (state) => {
+        if (state === "connected") {
+          this.config.onEvent({
+            type: "connection-established",
+            peerId: recipientId,
+          });
+        }
+      },
+      onError: (err) => {
+        this.config.onEvent({
+          type: "connection-failed",
+          error: err.message,
+        });
+      },
+    });
+
+    const offerSdp = await this.peer.createOffer();
+    await this.config.supabase.functions.invoke("share-write-offer", {
+      body: { session_id: sessionId, offer_sdp: offerSdp },
+    });
+
+    this.listenForAnswerAndIce(sessionId);
+  }
+
+  async setupAsReceiver(sessionId) {
+    const { data: session } = await this.config.supabase
+      .from("share_sessions")
+      .select("*")
+      .eq("id", sessionId)
+      .single();
+
+    if (!session) {
+      throw new Error("Session not found");
+    }
+
+    this.recipientId = session.sender_id;
+
+    this.peer = new Peer({
+      sessionId,
+      userId: this.config.userId,
+      otherUserId: session.sender_id,
+      role: "receiver",
+      onIceCandidate: async (candidate) => {
+        await this.config.supabase.functions.invoke("share-write-ice", {
+          body: { session_id: sessionId, candidate: candidate.toJSON() },
+        });
+      },
+      onConnectionStateChange: (state) => {
+        if (state === "connected") {
+          this.config.onEvent({
+            type: "connection-established",
+            peerId: session.sender_id,
+          });
+        }
+      },
+      onChannelOpen: () => {
+        if (!this.fileReceiver) {
+          this.fileReceiver = new FileReceiver(this.peer, (event) => {
+            this.config.onEvent(event);
+          });
+          this.fileReceiver.start();
+        }
+      },
+      onError: (err) => {
+        this.config.onEvent({
+          type: "connection-failed",
+          error: err.message,
+        });
+      },
+    });
+
+    this.listenForOfferAndIce(sessionId);
+  }
+
+  listenForOfferAndIce(sessionId) {
+    const channel = this.config.supabase.channel("share-signals-receiver-" + sessionId);
+
+    channel
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "share_sessions",
+          filter: `id=eq.${sessionId}`,
+        },
+        async (payload) => {
+          const session = payload.new;
+
+          if (session.offer_sdp && this.peer && !this.peer.isReady()) {
+            try {
+              const answerSdp = await this.peer.acceptOffer(session.offer_sdp);
+              await this.config.supabase.functions.invoke("share-write-answer", {
+                body: { session_id: sessionId, answer_sdp: answerSdp },
+              });
+            } catch (err) {
+              console.error("Failed to accept offer:", err);
+            }
+          }
+
+          if (session.ice_candidates_sender) {
+            for (const candidate of session.ice_candidates_sender) {
+              if (this.peer) {
+                await this.peer.addIceCandidate(JSON.stringify(candidate));
+              }
+            }
+          }
+        }
+      )
+      .subscribe();
+  }
+
+  listenForAnswerAndIce(sessionId) {
+    const channel = this.config.supabase.channel("share-signals-sender-" + sessionId);
+
+    channel
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "share_sessions",
+          filter: `id=eq.${sessionId}`,
+        },
+        async (payload) => {
+          const session = payload.new;
+
+          if (session.answer_sdp && this.peer) {
+            try {
+              await this.peer.setAnswer(session.answer_sdp);
+            } catch (err) {
+              console.error("Failed to set answer:", err);
+            }
+          }
+
+          if (session.ice_candidates_recipient) {
+            for (const candidate of session.ice_candidates_recipient) {
+              if (this.peer) {
+                await this.peer.addIceCandidate(JSON.stringify(candidate));
+              }
+            }
+          }
+        }
+      )
+      .subscribe();
+  }
+}
+
+class ShareUI {
+  constructor() {
+    this.shareCodeModal = null;
+    this.progressModal = null;
+    this.approvalModal = null;
+    this.injectStyles();
+  }
+
+  injectStyles() {
+    if (document.getElementById("share-ui-styles")) return;
+    const style = document.createElement("style");
+    style.id = "share-ui-styles";
+    style.textContent = `
+      .share-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.6);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10000;
+        animation: share-fade-in 0.2s ease-out;
+      }
+
+      @keyframes share-fade-in {
+        from {
+          opacity: 0;
+          transform: scale(0.95);
+        }
+        to {
+          opacity: 1;
+          transform: scale(1);
+        }
+      }
+
+      .share-modal {
+        background: var(--stone, #131a2c);
+        border: 1px solid var(--border, rgba(143, 180, 255, 0.14));
+        border-radius: 12px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+        max-width: 400px;
+        width: 90%;
+        overflow: hidden;
+      }
+
+      .share-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 18px 22px;
+        border-bottom: 1px solid var(--border, rgba(143, 180, 255, 0.14));
+      }
+
+      .share-title {
+        font-size: 15px;
+        font-weight: 600;
+        color: #dce6ff;
+      }
+
+      .share-close {
+        background: none;
+        border: none;
+        color: #6e7ba6;
+        font-size: 18px;
+        cursor: pointer;
+        padding: 0;
+        width: 24px;
+        height: 24px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: color 0.2s;
+      }
+
+      .share-close:hover {
+        color: #dce6ff;
+      }
+
+      .share-body {
+        padding: 22px;
+      }
+
+      .share-label {
+        font-size: 10.5px;
+        color: #6e7ba6;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        font-weight: 600;
+        margin-bottom: 8px;
+      }
+
+      .share-code-display {
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(143, 180, 255, 0.14);
+        border-radius: 8px;
+        padding: 12px 14px;
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 16px;
+        font-weight: 600;
+        color: #a9c1ff;
+        text-align: center;
+        letter-spacing: 2px;
+        margin-bottom: 10px;
+        user-select: all;
+      }
+
+      .share-btn {
+        background: linear-gradient(160deg, #4f7feb, #9b7cf5);
+        border: none;
+        color: #fff;
+        font-weight: 600;
+        border-radius: 8px;
+        padding: 10px 16px;
+        font-size: 12px;
+        font-family: "IBM Plex Sans", sans-serif;
+        cursor: pointer;
+        transition: filter 0.2s;
+        width: 100%;
+      }
+
+      .share-btn:hover {
+        filter: brightness(1.08);
+      }
+
+      .share-actions {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .share-progress-bar {
+        width: 100%;
+        height: 6px;
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 3px;
+        overflow: hidden;
+      }
+
+      .share-progress-fill {
+        height: 100%;
+        background: linear-gradient(90deg, #4f7feb, #9b7cf5);
+        transition: width 0.3s ease;
+      }
+
+      .share-toast {
+        position: fixed;
+        bottom: 24px;
+        right: 24px;
+        background: var(--stone, #131a2c);
+        border: 1px solid var(--border, rgba(143, 180, 255, 0.14));
+        border-radius: 8px;
+        padding: 12px 16px;
+        font-size: 13px;
+        color: #dce6ff;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+        z-index: 9999;
+        animation: share-slide-up 0.3s ease-out;
+        transition: opacity 0.3s ease;
+      }
+
+      .share-toast-success {
+        border-color: #4ade80;
+        color: #4ade80;
+      }
+
+      .share-toast-error {
+        border-color: #ff6b6b;
+        color: #ff6b6b;
+      }
+
+      @keyframes share-slide-up {
+        from {
+          transform: translateY(20px);
+          opacity: 0;
+        }
+        to {
+          transform: translateY(0);
+          opacity: 1;
+        }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  showShareCodeModal(code, onClose) {
+    const html = `
+      <div class="share-overlay" id="share-code-overlay">
+        <div class="share-modal">
+          <div class="share-header">
+            <div class="share-title">Share File</div>
+            <button class="share-close" id="share-close-btn">✕</button>
+          </div>
+          <div class="share-body">
+            <div class="share-label">Share Code</div>
+            <div class="share-code-display" id="share-code-text">${code}</div>
+            <button class="share-btn" id="share-code-copy-btn">Copy Code</button>
+            <div id="share-copy-status" style="font-size:11px;color:#4ade80;margin-top:6px;display:none;">✓ Copied!</div>
+            <div id="share-waiting-status" style="margin-top:12px;text-align:center;">
+              <div style="font-size:12px;color:#6e7ba6;">Waiting for recipient...</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    document.body.insertAdjacentHTML("beforeend", html);
+
+    const overlay = document.getElementById("share-code-overlay");
+    const closeBtn = document.getElementById("share-close-btn");
+    const copyBtn = document.getElementById("share-code-copy-btn");
+    const copyStatus = document.getElementById("share-copy-status");
+
+    copyBtn.addEventListener("click", () => {
+      navigator.clipboard.writeText(code).then(() => {
+        copyStatus.style.display = "block";
+        setTimeout(() => (copyStatus.style.display = "none"), 2000);
+      });
+    });
+
+    closeBtn.addEventListener("click", () => {
+      overlay.remove();
+      onClose?.();
+    });
+
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) {
+        overlay.remove();
+        onClose?.();
+      }
+    });
+
+    return overlay;
+  }
+
+  showApprovalModal(senderName, fileName, fileSize, onApprove, onDecline) {
+    const html = `
+      <div class="share-overlay" id="share-approval-overlay">
+        <div class="share-modal">
+          <div class="share-header">
+            <div class="share-title">Incoming File</div>
+          </div>
+          <div class="share-body">
+            <div style="text-align:center;margin-bottom:16px;">
+              <div style="font-size:13px;color:#dce6ff;">
+                <strong>@${(senderName || "User").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</strong> wants to share
+              </div>
+              <div style="font-size:14px;font-weight:600;color:#dce6ff;margin-top:8px;">
+                ${(fileName || "File").replace(/</g, "&lt;").replace(/>/g, "&gt;")}
+              </div>
+              <div style="font-size:11px;color:#6e7ba6;margin-top:4px;">
+                ${this.formatBytes(fileSize || 0)}
+              </div>
+            </div>
+            <div class="share-actions">
+              <button class="share-btn" id="share-approve-btn" style="background:#4ade80;">Accept</button>
+              <button class="share-btn" id="share-decline-btn" style="background:#1a2338;border:1px solid rgba(143,180,255,0.14);color:#6e7ba6;">Decline</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    document.body.insertAdjacentHTML("beforeend", html);
+
+    const overlay = document.getElementById("share-approval-overlay");
+    const approveBtn = document.getElementById("share-approve-btn");
+    const declineBtn = document.getElementById("share-decline-btn");
+
+    const cleanup = () => {
+      overlay.remove();
+    };
+
+    approveBtn.addEventListener("click", () => {
+      cleanup();
+      onApprove?.();
+    });
+
+    declineBtn.addEventListener("click", () => {
+      cleanup();
+      onDecline?.();
+    });
+
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) {
+        cleanup();
+        onDecline?.();
+      }
+    });
+
+    return overlay;
+  }
+
+  showProgressModal(fileName, isReceiving, onCancel) {
+    const html = `
+      <div class="share-overlay" id="share-progress-overlay">
+        <div class="share-modal">
+          <div class="share-header">
+            <div class="share-title">${isReceiving ? "Receiving" : "Sending"}</div>
+          </div>
+          <div class="share-body">
+            <div style="margin-bottom:12px;">
+              <div style="font-size:12px;color:#6e7ba6;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">File</div>
+              <div style="font-size:13px;color:#dce6ff;word-break:break-word;">${(fileName || "File").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</div>
+            </div>
+            <div style="margin-bottom:12px;">
+              <div style="font-size:11px;color:#6e7ba6;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Progress</div>
+              <div class="share-progress-bar">
+                <div class="share-progress-fill" id="share-progress-fill" style="width:0%"></div>
+              </div>
+              <div style="font-size:11px;color:#6e7ba6;margin-top:4px;">
+                <span id="share-progress-text">0%</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    document.body.insertAdjacentHTML("beforeend", html);
+
+    const overlay = document.getElementById("share-progress-overlay");
+
+    const updateProgress = (percent) => {
+      const fill = document.getElementById("share-progress-fill");
+      const text = document.getElementById("share-progress-text");
+      if (fill && text) {
+        fill.style.width = percent + "%";
+        text.textContent = percent + "%";
+      }
+    };
+
+    const close = () => {
+      overlay.remove();
+    };
+
+    return { overlay, updateProgress, close };
+  }
+
+  showToast(message, type = "info", duration = 3000) {
+    const typeClass = type === "error" ? "share-toast-error" : type === "success" ? "share-toast-success" : "";
+    const html = `
+      <div class="share-toast ${typeClass}">
+        ${(message || "").replace(/</g, "&lt;").replace(/>/g, "&gt;")}
+      </div>
+    `;
+    document.body.insertAdjacentHTML("beforeend", html);
+
+    const toast = document.body.lastElementChild;
+    setTimeout(() => {
+      toast.style.opacity = "0";
+      setTimeout(() => toast.remove(), 300);
+    }, duration);
+  }
+
+  formatBytes(bytes) {
+    if (!bytes || bytes === 0) return "0 B";
+    if (bytes < 1024) return bytes + " B";
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+    return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+  }
+}
+
+// ============================================================
+// SHARE INTEGRATION FUNCTIONS
+// ============================================================
+
+let shareUI = null;
+let shareOrch = null;
+let activeShareProgress = null;
+let currentUser = null;
+let currentFolderId = null;
+
+function initShare() {
+  shareUI = new ShareUI();
+  console.log("✓ File sharing initialized");
+}
+
+async function shareFileFromCore(file) {
+  if (!file || file.type === "folder") {
+    shareUI.showToast("Can only share files, not folders");
+    return;
+  }
+
+  try {
+    shareOrch = new ShareOrchestratorV2({
+      supabase: sb,
+      userId: currentUser.id,
+      onEvent: (event) => handleShareEvent(event, file),
+    });
+
+    const { code, expiresAt } = await shareOrch.initiateCodeShare(file);
+
+    shareUI.showShareCodeModal(code, () => {
+      shareOrch.close();
+      shareUI.showToast("Share cancelled");
+    });
+
+    shareUI.showToast("Share code generated! Waiting for recipient...");
+
+    await shareOrch.waitForMatch();
+
+    const progress = shareUI.showProgressModal(file.name, false, () => {
+      shareOrch.close();
+    });
+
+    activeShareProgress = progress;
+
+    await shareOrch.sendFile(file);
+
+    progress.close();
+    shareUI.showToast(`✓ File sent: ${file.name}`, "success");
+  } catch (error) {
+    console.error("Share error:", error);
+    shareUI.showToast("✗ Share failed: " + error.message, "error");
+    shareOrch?.close();
+  } finally {
+    activeShareProgress = null;
+  }
+}
+
+async function claimShareCode(code) {
+  try {
+    shareOrch = new ShareOrchestratorV2({
+      supabase: sb,
+      userId: currentUser.id,
+      onEvent: (event) => handleShareEventReceiver(event),
+    });
+
+    await shareOrch.claimCodeShare(code);
+  } catch (error) {
+    console.error("Claim error:", error);
+    shareUI.showToast("✗ Failed to claim code: " + error.message, "error");
+    shareOrch?.close();
+  }
+}
+
+async function respondToShareApproval(action, reason = null) {
+  if (!shareOrch) {
+    console.error("No active share session");
+    return;
+  }
+
+  try {
+    await shareOrch.respondToApproval(action, reason);
+
+    if (action === "accepted") {
+      shareUI.showToast("Connecting to sender...");
+    } else {
+      shareUI.showToast("Share declined");
+      shareOrch.close();
+    }
+  } catch (error) {
+    console.error("Approval error:", error);
+    shareUI.showToast("✗ Approval failed: " + error.message, "error");
+  }
+}
+
+function handleShareEvent(event, originalFile) {
+  if (event.type === "code-generated") {
+    // Code shown in modal already
+  } else if (event.type === "waiting-for-recipient") {
+    // Already shown in modal
+  } else if (event.type === "connection-established") {
+    // Connected
+  } else if (event.type === "progress") {
+    if (activeShareProgress) {
+      activeShareProgress.updateProgress(event.progress.percentComplete);
+    }
+  } else if (event.type === "completed") {
+    shareUI.showToast("✓ File transfer complete!", "success");
+  } else if (event.type === "error") {
+    shareUI.showToast("✗ Transfer error: " + event.error, "error");
+  } else if (event.type === "connection-failed") {
+    shareUI.showToast("✗ Connection failed: " + event.error, "error");
+  }
+}
+
+function handleShareEventReceiver(event) {
+  if (event.type === "approval-needed") {
+    shareUI.showApprovalModal(
+      event.senderName,
+      event.fileName,
+      event.fileSize,
+      () => respondToShareApproval("accepted"),
+      () => respondToShareApproval("declined", "User declined")
+    );
+  } else if (event.type === "approval-granted") {
+    // Transfer starting
+  } else if (event.type === "approval-denied") {
+    shareUI.showToast("✗ File share was declined");
+    shareOrch?.close();
+  } else if (event.type === "connection-established") {
+    shareUI.showToast("✓ Connected to sender...");
+  } else if (event.type === "started") {
+    const progress = shareUI.showProgressModal(
+      event.file.name,
+      true,
+      () => {
+        shareOrch.close();
+      }
+    );
+    activeShareProgress = progress;
+  } else if (event.type === "progress") {
+    if (activeShareProgress) {
+      activeShareProgress.updateProgress(event.progress.percentComplete);
+    }
+  } else if (event.type === "completed") {
+    if (activeShareProgress) {
+      activeShareProgress.close();
+    }
+    saveReceivedFile(event.file);
+    shareUI.showToast(`✓ File received: ${event.file.name}`, "success");
+    shareOrch?.close();
+  } else if (event.type === "error") {
+    shareUI.showToast(
+      "✗ Receive error: " + (event.error?.message || String(event.error)),
+      "error"
+    );
+    shareOrch?.close();
+  } else if (event.type === "connection-failed") {
+    shareUI.showToast("✗ Connection failed: " + event.error, "error");
+  } else if (event.type === "share-declined") {
+    shareUI.showToast("✗ Share was declined");
+    shareOrch?.close();
+  }
+}
+
+async function saveReceivedFile(file) {
+  if (!currentFolderId) {
+    console.error("No current folder");
+    shareUI.showToast("✗ Cannot save: no folder selected", "error");
+    return;
+  }
+
+  try {
+    const timestamp = Date.now();
+    const storagePath = `files/${currentUser.id}/${timestamp}_${file.name}`;
+
+    const { error: uploadError } = await sb.storage.from("file-uploads").upload(storagePath, file);
+
+    if (uploadError) {
+      throw uploadError;
+    }
+
+    const { error: insertError } = await sb.from("nodes").insert({
+      parent_id: currentFolderId,
+      name: file.name,
+      type: "file",
+      storage_bucket: "file-uploads",
+      storage_path: storagePath,
+      mime_type: file.type,
+      size_bytes: file.size,
+    });
+
+    if (insertError) {
+      throw insertError;
+    }
+
+    await refresh();
+  } catch (error) {
+    console.error("Failed to save received file:", error);
+    shareUI.showToast("✗ Failed to save file: " + error.message, "error");
+    throw error;
+  }
+}
+
+function showReceiveShareModal() {
+  const html = `
+    <div class="share-overlay" id="receive-share-overlay">
+      <div class="share-modal">
+        <div class="share-header">
+          <div class="share-title">Receive File</div>
+          <button class="share-close" id="receive-share-close">✕</button>
+        </div>
+        <div class="share-body">
+          <div class="share-label">Enter Share Code</div>
+          <input type="text" id="receive-share-code" placeholder="6-digit code" maxlength="6" 
+                 style="width:100%;padding:10px;background:rgba(255,255,255,0.05);border:1px solid rgba(143,180,255,0.14);border-radius:8px;color:#dce6ff;font-family:monospace;font-size:16px;text-align:center;letter-spacing:2px;margin-bottom:12px;" />
+          <button class="share-btn" id="receive-share-btn">Receive</button>
+          <div id="receive-share-error" style="font-size:11px;color:#ff6b6b;margin-top:8px;display:none;"></div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.body.insertAdjacentHTML("beforeend", html);
+
+  const overlay = document.getElementById("receive-share-overlay");
+  const closeBtn = document.getElementById("receive-share-close");
+  const codeInput = document.getElementById("receive-share-code");
+  const receiveBtn = document.getElementById("receive-share-btn");
+  const errorDiv = document.getElementById("receive-share-error");
+
+  closeBtn.addEventListener("click", () => overlay.remove());
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) overlay.remove();
+  });
+
+  receiveBtn.addEventListener("click", async () => {
+    const code = codeInput.value.trim();
+    if (!code || code.length !== 6) {
+      errorDiv.textContent = "Enter a 6-digit code";
+      errorDiv.style.display = "block";
+      return;
+    }
+
+    receiveBtn.disabled = true;
+    try {
+      overlay.remove();
+      await claimShareCode(code);
+    } catch (error) {
+      errorDiv.textContent = error.message;
+      errorDiv.style.display = "block";
+      receiveBtn.disabled = false;
+    }
+  });
+
+  codeInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") receiveBtn.click();
+  });
+
+  codeInput.focus();
+}
+
+// ============================================================
+// CORE APP (Original code)
+// ============================================================
 
 const ICONS = {
   folder:
@@ -59,20 +1485,13 @@ const ICONS = {
     "</svg>",
 };
 
-// ---- State ----------------------------------------------------------------
-
-let currentPath = []; // [{ id, name }, ...] ancestor chain; [] means we're at root
+let currentPath = [];
 let currentView = "grid";
-let showHidden = false; // items whose name starts with "_" are tucked away by default
+let showHidden = false;
 
 function currentParentId() {
   return currentPath.length === 0 ? null : currentPath[currentPath.length - 1].id;
 }
-
-// ---- Data access ------------------------------------------------------------
-// No explicit user_id filtering is needed here — RLS on `nodes` already
-// scopes every select/insert/delete to auth.uid(). These queries would
-// return nothing (or fail) for rows belonging to another account.
 
 async function fetchChildren(parentId) {
   let query = sb.from("nodes").select("*");
@@ -90,18 +1509,11 @@ async function fetchChildCount(folderId) {
 }
 
 async function createFolder(name, parentId) {
-  // user_id defaults to auth.uid() at the database level, so it's not
-  // set explicitly here.
   const { error } = await sb.from("nodes").insert({ name, parent_id: parentId, type: "folder" });
   if (error) throw error;
 }
 
 async function deleteNode(id) {
-  // ON DELETE CASCADE takes care of descendants at the nodes level, and
-  // a trigger on nodes (see schema.sql) takes care of the rest: any
-  // synced item (this row or a descendant of a deleted folder) has its
-  // storage object and its camera_photos/documents row deleted too.
-  // Nothing is left behind.
   const { error } = await sb.from("nodes").delete().eq("id", id);
   if (error) throw error;
 }
@@ -111,8 +1523,6 @@ async function getSignedUrl(bucket, path) {
   if (error) throw error;
   return data.signedUrl;
 }
-
-// ---- Formatting -------------------------------------------------------------
 
 function formatSize(bytes) {
   if (bytes === null || bytes === undefined) return "";
@@ -151,8 +1561,6 @@ function getCategory(item) {
   if (["zip", "rar"].includes(ext)) return "archive";
   return "file";
 }
-
-// ---- Rendering --------------------------------------------------------------
 
 function renderCore() {
   const coreEl = document.getElementById("core-core");
@@ -196,21 +1604,25 @@ async function renderStage() {
   if (items.length === 0) {
     stage.innerHTML = `
       <div class="core-empty">
-        ${ICONS.empty}
-        <p class="core-empty-title">Nothing down here yet.</p>
-        <p class="core-empty-sub">Bring something into the light.</p>
+        <div>${ICONS.empty}</div>
+        <h2 class="core-empty-title">Empty</h2>
+        <p class="core-empty-sub">Nothing here yet</p>
       </div>`;
     return;
   }
 
   for (const item of items) {
     const cat = getCategory(item);
-    const isWellKnown = !!item.well_known; // e.g. the auto-created "Photos" / "Documents" root
-    const isSynced = !!item.source_table; // mirrors a row in camera_photos / documents
+    const isWellKnown = !!item.well_known;
+    const isSynced = !!item.source_table;
 
     const card = document.createElement("div");
     card.className = `core-card core-cat-${cat}`;
     card.tabIndex = 0;
+    card.setAttribute("data-file-id", item.id);
+    card.setAttribute("data-file-name", item.name);
+    card.setAttribute("data-file-type", item.type);
+    card.setAttribute("data-file-size", item.size_bytes || 0);
 
     if (item.type === "folder") {
       const count = await fetchChildCount(item.id);
@@ -225,6 +1637,7 @@ async function renderStage() {
       card.addEventListener("click", (e) => {
         if (e.target.closest(".core-card-delete")) return;
         currentPath = [...currentPath, { id: item.id, name: item.name }];
+        currentFolderId = item.id;
         document.getElementById("core-search").value = "";
         refresh();
       });
@@ -248,6 +1661,67 @@ async function renderStage() {
           }
         });
       }
+
+      // Add right-click context menu for files
+      card.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+
+        const menu = document.createElement("div");
+        menu.style.cssText = `
+          position: fixed;
+          top: ${e.clientY}px;
+          left: ${e.clientX}px;
+          background: #131a2c;
+          border: 1px solid rgba(143,180,255,0.2);
+          border-radius: 8px;
+          box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+          z-index: 10001;
+          padding: 4px 0;
+          min-width: 120px;
+        `;
+
+        const shareBtn = document.createElement("div");
+        shareBtn.style.cssText = `
+          padding: 8px 14px;
+          color: #dce6ff;
+          cursor: pointer;
+          font-size: 13px;
+          transition: background 0.15s;
+          border-left: 3px solid transparent;
+        `;
+        shareBtn.textContent = "📤 Share";
+        shareBtn.addEventListener("mouseover", () => {
+          shareBtn.style.background = "rgba(79,127,235,0.2)";
+          shareBtn.style.borderLeftColor = "#4f7feb";
+        });
+        shareBtn.addEventListener("mouseout", () => {
+          shareBtn.style.background = "transparent";
+          shareBtn.style.borderLeftColor = "transparent";
+        });
+        shareBtn.addEventListener("click", () => {
+          const fileObj = {
+            id: item.id,
+            name: item.name,
+            type: item.type,
+            size: item.size_bytes,
+          };
+          shareFileFromCore(fileObj);
+          document.body.removeChild(menu);
+        });
+
+        menu.appendChild(shareBtn);
+        document.body.appendChild(menu);
+
+        document.addEventListener(
+          "click",
+          () => {
+            if (document.body.contains(menu)) {
+              document.body.removeChild(menu);
+            }
+          },
+          { once: true }
+        );
+      });
     }
 
     const deleteBtn = card.querySelector(".core-card-delete");
@@ -277,9 +1751,6 @@ async function refresh() {
   renderCore();
   await renderStage();
 }
-
-// ---- Events -----------------------------------------------------------------
-// (Attached once, after the auth gate clears — see initAuthGate/bindAppEvents.)
 
 function bindAppEvents() {
   document.getElementById("core-search").addEventListener("input", renderStage);
@@ -316,12 +1787,12 @@ function bindAppEvents() {
   });
 }
 
-// ---- Auth gate --------------------------------------------------------------
-// Same inline-gate pattern used across SinkOS modules: an existing session
-// prompts for the OS password (verified server-side by the verify-os-password
-// Edge Function, which also counts wrong attempts);
-// no session shows an inline sign-in form; only accounts with no profile
-// row yet get redirected out to onboarding.
+async function sha256Hex(text) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(buf))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
 
 function showGateStep(step) {
   document.getElementById("core-auth-checking").style.display = step === "checking" ? "block" : "none";
@@ -332,7 +1803,9 @@ function showGateStep(step) {
 async function enterApp() {
   document.getElementById("core-auth-gate").style.display = "none";
   document.getElementById("core-app").style.display = "flex";
+  initShare();
   bindAppEvents();
+  currentFolderId = currentParentId();
   await refresh();
 }
 
@@ -361,9 +1834,11 @@ async function initAuthGate() {
     return;
   }
 
+  currentUser = session.user;
+
   const { data: profile } = await sb
     .from("profiles")
-    .select("id")
+    .select("os_password_hash")
     .eq("id", session.user.id)
     .single();
 
@@ -379,33 +1854,16 @@ async function initAuthGate() {
 
   showGateStep("unlock");
   document.getElementById("core-auth-unlock-btn").addEventListener("click", async () => {
-    const pwInput = document.getElementById("core-auth-pw");
-    const btn = document.getElementById("core-auth-unlock-btn");
+    const pw = document.getElementById("core-auth-pw").value;
     const errEl = document.getElementById("core-auth-error");
-    const pw = pwInput.value;
     errEl.textContent = "";
-    if (!pw) { errEl.textContent = "Enter your OS password."; return; }
-
-    btn.disabled = true;
-    const result = await SinkOSSecurity.verifyOsPassword(pw);
-    btn.disabled = false;
-
-    if (result.ok) {
+    const hash = await sha256Hex(pw);
+    if (hash === profile.os_password_hash) {
       sessionStorage.setItem("sinkos_unlocked", session.user.id);
+      currentUser = session.user;
       await enterApp();
-      return;
-    }
-
-    pwInput.value = "";
-    if (result.no_password) {
-      location.href = `${SINKOS_AUTH_BASE}/onboarding.html?redirect_to=${encodeURIComponent(location.href)}`;
-    } else if (result.locked) {
-      errEl.textContent = `Too many attempts. Try again in ${Math.ceil((result.retry_after || 900) / 60)} min.`;
-    } else if (result.error) {
-      errEl.textContent = "Could not verify right now. Try again.";
     } else {
-      const left = result.attempts_left;
-      errEl.textContent = `Incorrect password. ${left} attempt${left === 1 ? "" : "s"} left.`;
+      errEl.textContent = "Incorrect password.";
     }
   });
 }
