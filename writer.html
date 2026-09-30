@@ -1090,6 +1090,7 @@
 
   <!-- Libraries -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="./security-monitor.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/html-docx-js/dist/html-docx.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
@@ -1110,6 +1111,7 @@
     };
 
     const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    SinkOSSecurity.init(sb);
 
     let currentUser = null;
     let currentDocId = null;
@@ -1143,13 +1145,8 @@
       authLoadingView.style.display = view === 'loading' ? 'block' : 'none';
     }
 
-    async function hashOsPassword(pw) {
-      const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pw));
-      return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
-    }
-
     async function fetchProfile(userId) {
-      const { data } = await sb.from('profiles').select('username, os_password_hash').eq('id', userId).single();
+      const { data } = await sb.from('profiles').select('username').eq('id', userId).single();
       return data;
     }
 
@@ -1210,16 +1207,22 @@
 
       authUnlockBtn.disabled = true;
       authUnlockBtn.textContent = 'Unlocking…';
-      const inputHash = await hashOsPassword(pw);
-      const storedHash = currentProfile ? currentProfile.os_password_hash : null;
+      const result = await SinkOSSecurity.verifyOsPassword(pw);
       authUnlockBtn.disabled = false;
       authUnlockBtn.textContent = 'Unlock';
 
-      if (storedHash && inputHash === storedHash) {
-        unlockApp();
+      if (result.ok) { unlockApp(); return; }
+
+      authOsPassword.value = '';
+      if (result.no_password) {
+        redirectToOnboarding();
+      } else if (result.locked) {
+        authUnlockErr.textContent = `Too many attempts. Try again in ${Math.ceil((result.retry_after || 900) / 60)} min.`;
+      } else if (result.error) {
+        authUnlockErr.textContent = 'Could not verify right now. Try again.';
       } else {
-        authUnlockErr.textContent = 'Incorrect password. Try again.';
-        authOsPassword.value = '';
+        const left = result.attempts_left;
+        authUnlockErr.textContent = `Incorrect password. ${left} attempt${left === 1 ? '' : 's'} left.`;
       }
     });
 
