@@ -1868,4 +1868,7 @@ async function initAuthGate() {
   });
 }
 
-initAuthGate();
+// initAuthGate();
+//Temp bypass for testing
+currenUser = { id: "test-user-id" };
+enterAPp();
