@@ -1813,6 +1813,15 @@ async function initAuthGate() {
   document.getElementById("core-auth-gate").style.display = "flex";
   showGateStep("checking");
 
+  // DEBUG: Log auth values
+  const sess = await sb.auth.getSession();
+  const userId = sess.data?.session?.user?.id;
+  const stored = sessionStorage.getItem("sinkos_unlocked");
+  console.log("🔍 AUTH DEBUG:", { userId, stored, match: userId === stored });
+  
+  // Delay 2 seconds so you can see console
+  await new Promise(r => setTimeout(r, 2000));
+
   const {
     data: { session },
   } = await sb.auth.getSession();
