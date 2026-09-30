@@ -1868,7 +1868,4 @@ async function initAuthGate() {
   });
 }
 
-// initAuthGate();
-//Temp bypass for testing
-currentUser = { id: "test-user-id" };
-enterApp();
+initAuthGate();
