@@ -8,6 +8,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css" />
 </head>
+
 <body>
 
   <!-- Inline auth gate: shown before the app while we figure out session state -->
@@ -44,6 +45,7 @@
         <input class="core-search" id="core-search" placeholder="Search this layer…" />
         <button class="core-new-folder-btn" id="core-new-folder-btn" title="New folder">+ Folder</button>
         <button class="core-new-folder-btn" id="core-hidden-toggle" title="Show items starting with _">Show hidden</button>
+        <button class="core-new-folder-btn" id="core-receive-file-btn" title="Receive a file" onclick="showReceiveShareModal()">📥 Receive</button>
         <button class="core-view-toggle" id="core-view-toggle" title="Toggle view">⊞</button>
         <button class="core-new-folder-btn" id="core-signout-btn" title="Sign out">Sign out</button>
       </div>
