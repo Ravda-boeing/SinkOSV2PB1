@@ -1837,8 +1837,8 @@ async function initAuthGate() {
   const stored = sessionStorage.getItem("sinkos_unlocked");
   console.log("🔍 AUTH DEBUG:", { userId, stored, match: userId === stored });
   
-  // Delay 2 seconds so you can see console
-  await new Promise(r => setTimeout(r, 2000));
+  // Delay 10 seconds so you can read console
+  await new Promise(r => setTimeout(r, 10000));
   
   console.log("⏱️ Delay complete, continuing auth flow...");
 
