@@ -1828,10 +1828,12 @@ async function enterApp() {
 }
 
 async function initAuthGate() {
+  console.log("🚀 initAuthGate() CALLED - script loaded");
   document.getElementById("core-auth-gate").style.display = "flex";
   showGateStep("checking");
 
   // DEBUG: Log auth values
+  console.log("📋 About to call getSession()");
   const sess = await sb.auth.getSession();
   const userId = sess.data?.session?.user?.id;
   const stored = sessionStorage.getItem("sinkos_unlocked");
@@ -1906,4 +1908,5 @@ async function initAuthGate() {
   });
 }
 
+console.log("📄 core.js fully loaded, calling initAuthGate()...");
 initAuthGate();
