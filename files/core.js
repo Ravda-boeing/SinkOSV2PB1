@@ -1801,12 +1801,30 @@ function showGateStep(step) {
 }
 
 async function enterApp() {
-  document.getElementById("core-auth-gate").style.display = "none";
-  document.getElementById("core-app").style.display = "flex";
-  initShare();
-  bindAppEvents();
-  currentFolderId = currentParentId();
-  await refresh();
+  try {
+    console.log("📍 enterApp: hiding auth gate");
+    document.getElementById("core-auth-gate").style.display = "none";
+    
+    console.log("📍 enterApp: showing app");
+    document.getElementById("core-app").style.display = "flex";
+    
+    console.log("📍 enterApp: initializing share");
+    initShare();
+    
+    console.log("📍 enterApp: binding app events");
+    bindAppEvents();
+    
+    console.log("📍 enterApp: setting currentFolderId");
+    currentFolderId = currentParentId();
+    
+    console.log("📍 enterApp: calling refresh");
+    await refresh();
+    
+    console.log("✓ enterApp: all steps completed");
+  } catch (err) {
+    console.error("✗ enterApp failed at some step:", err);
+    throw err;
+  }
 }
 
 async function initAuthGate() {
@@ -1857,7 +1875,14 @@ async function initAuthGate() {
   }
 
   if (sessionStorage.getItem("sinkos_unlocked") === session.user.id) {
-    await enterApp();
+    console.log("✓ Auth match passed, calling enterApp()...");
+    try {
+      await enterApp();
+      console.log("✓ enterApp() completed successfully");
+    } catch (err) {
+      console.error("✗ enterApp() threw error:", err);
+      throw err;
+    }
     return;
   }
 
