@@ -1877,55 +1877,53 @@ async function initAuthGate() {
 
   currentUser = session.user;
 
+  console.log("📋 Querying profile for user:", session.user.id);
+  console.log("📋 Using Supabase URL:", SUPABASE_URL);
+  console.log("📋 Query: SELECT os_password_hash FROM profiles WHERE id =", session.user.id);
+  
+  const { data: profile, error: profileError, status, statusText } = await sb
+    .from("profiles")
+    .select("os_password_hash")
+    .eq("id", session.user.id)
+    .single();
+
+  console.log("📋 Query returned:", { status, statusText, profile, profileError });
+  
+  if (profileError) {
+    console.error("❌ Profile query ERROR:", profileError);
+    console.error("❌ Error code:", profileError.code);
+    console.error("❌ Error message:", profileError.message);
+  }
+
+  if (!profile) {
+    console.log("⚠️ No profile found. Redirecting to onboarding.");
+    console.log("⚠️ profile is:", profile);
+    console.log("⚠️ profileError is:", profileError);
+    location.href = `${SINKOS_AUTH_BASE}/onboarding.html?redirect_to=${encodeURIComponent(location.href)}`;
+    return;
+  }
+  console.log("✓ Profile loaded, os_password_hash exists");
+
   if (localStorage.getItem("sinkos_unlocked") === session.user.id) {
     console.log("✓ Auth match passed, entering app");
     await enterApp();
     return;
   }
 
-  // Auth not unlocked, show password prompt (no redirect to onboarding)
+  // Auth not unlocked, show password prompt
   console.log("🔐 Auth unlock needed, showing password prompt");
   showGateStep("unlock");
   document.getElementById("core-auth-unlock-btn").addEventListener("click", async () => {
     const pw = document.getElementById("core-auth-pw").value;
     const errEl = document.getElementById("core-auth-error");
-    const btn = document.getElementById("core-auth-unlock-btn");
     errEl.textContent = "";
-
-    if (!pw) {
-      errEl.textContent = "Enter your password.";
-      return;
-    }
-
-    btn.textContent = "Unlocking…";
-    btn.disabled = true;
-
-    // Fetch password hash for verification
-    console.log("📋 Fetching profile for password verification...");
-    const { data: profile, error: profileError } = await sb
-      .from("profiles")
-      .select("os_password_hash")
-      .eq("id", session.user.id)
-      .single();
-
-    if (profileError || !profile) {
-      console.error("❌ Profile fetch error:", profileError);
-      errEl.textContent = "Could not verify password. Try again.";
-      btn.textContent = "Unlock";
-      btn.disabled = false;
-      return;
-    }
-
-    // Verify password
     const hash = await sha256Hex(pw);
     if (hash === profile.os_password_hash) {
-      console.log("✓ Password correct, setting localStorage and entering app");
       localStorage.setItem("sinkos_unlocked", session.user.id);
+      currentUser = session.user;
       await enterApp();
     } else {
       errEl.textContent = "Incorrect password.";
-      btn.textContent = "Unlock";
-      btn.disabled = false;
     }
   });
 }
