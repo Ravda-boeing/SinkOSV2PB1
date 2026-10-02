@@ -1889,19 +1889,13 @@ async function initAuthGate() {
   }
 
   if (localStorage.getItem("sinkos_unlocked") === session.user.id) {
-    console.log("✓ Auth match passed");
-    console.log("✓ About to call enterApp()...");
-    console.log("⏳ If you don't see the next log, a redirect happened during enterApp()");
-    try {
-      await enterApp();
-      console.log("✓ enterApp() completed successfully");
-    } catch (err) {
-      console.error("✗ enterApp() threw error:", err);
-      throw err;
-    }
+    console.log("✓ Auth match passed, entering app");
+    await enterApp();
     return;
   }
 
+  // Auth not unlocked, show password prompt
+  console.log("🔐 Auth unlock needed, showing password prompt");
   showGateStep("unlock");
   document.getElementById("core-auth-unlock-btn").addEventListener("click", async () => {
     const pw = document.getElementById("core-auth-pw").value;
