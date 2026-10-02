@@ -1881,7 +1881,9 @@ async function initAuthGate() {
   }
 
   if (localStorage.getItem("sinkos_unlocked") === session.user.id) {
-    console.log("✓ Auth match passed, calling enterApp()...");
+    console.log("✓ Auth match passed");
+    console.log("✓ About to call enterApp()...");
+    console.log("⏳ If you don't see the next log, a redirect happened during enterApp()");
     try {
       await enterApp();
       console.log("✓ enterApp() completed successfully");
