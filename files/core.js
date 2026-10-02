@@ -1781,7 +1781,7 @@ function bindAppEvents() {
   });
 
   document.getElementById("core-signout-btn").addEventListener("click", async () => {
-    sessionStorage.removeItem("sinkos_unlocked");
+    localStorage.removeItem("sinkos_unlocked");
     await sb.auth.signOut();
     location.reload();
   });
@@ -1836,7 +1836,7 @@ async function initAuthGate() {
   console.log("📋 About to call getSession()");
   const sess = await sb.auth.getSession();
   const userId = sess.data?.session?.user?.id;
-  const stored = sessionStorage.getItem("sinkos_unlocked");
+  const stored = localStorage.getItem("sinkos_unlocked");
   console.log("🔍 AUTH DEBUG:", { userId, stored, match: userId === stored });
   
   // Delay 10 seconds so you can read console
@@ -1880,7 +1880,7 @@ async function initAuthGate() {
     return;
   }
 
-  if (sessionStorage.getItem("sinkos_unlocked") === session.user.id) {
+  if (localStorage.getItem("sinkos_unlocked") === session.user.id) {
     console.log("✓ Auth match passed, calling enterApp()...");
     try {
       await enterApp();
@@ -1899,7 +1899,7 @@ async function initAuthGate() {
     errEl.textContent = "";
     const hash = await sha256Hex(pw);
     if (hash === profile.os_password_hash) {
-      sessionStorage.setItem("sinkos_unlocked", session.user.id);
+      localStorage.setItem("sinkos_unlocked", session.user.id);
       currentUser = session.user;
       await enterApp();
     } else {
