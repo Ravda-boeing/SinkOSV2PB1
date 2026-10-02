@@ -1829,6 +1829,12 @@ async function enterApp() {
 
 async function initAuthGate() {
   console.log("🚀 initAuthGate() CALLED - script loaded");
+  
+  // Listen for any auth state changes
+  sb.auth.onAuthStateChange((event, session) => {
+    console.log("🔔 AUTH STATE CHANGED:", event, session?.user?.id);
+  });
+  
   document.getElementById("core-auth-gate").style.display = "flex";
   showGateStep("checking");
 
@@ -1840,9 +1846,11 @@ async function initAuthGate() {
   console.log("🔍 AUTH DEBUG:", { userId, stored, match: userId === stored });
   
   // Delay 10 seconds so you can read console
+  console.log("⏱️ Starting 10-second delay...");
   await new Promise(r => setTimeout(r, 10000));
   
   console.log("⏱️ Delay complete, continuing auth flow...");
+  console.log("⏱️ About to fetch session again");
 
   const {
     data: { session },
