@@ -1,45 +1,42 @@
-document.addEventListener("DOMContentLoaded", () => {
+// Loaded by boot.html after the "Initializing" stage, so the DOM is already ready.
+// (No DOMContentLoaded wrapper: that event has fired by the time this runs.)
 
-    const image = document.getElementById("boot-image");
-    const text = document.getElementById("boot-text");
-    const sound = document.getElementById("startupSound");
-    const bar = document.getElementById("config-bar");
-    const label = document.getElementById("config-label");
+const HOLD_MS = 9000;  // how long the boot screen stays visible
+const FADE_MS = 2000;  // must match the opacity transition in boot.html
+const NEXT_PAGE = "https://ravda-boeing.github.io/SinkOSAuth/lockscreen.html";
 
-    if (image && text && sound && bar && label) {
+const image = document.getElementById("boot-image");
+const text = document.getElementById("boot-text");
+const sound = document.getElementById("startupSound");
+const bar = document.getElementById("config-bar");
+const label = document.getElementById("config-label");
 
-        // Try to play sound
-        sound.play().catch(() => {
-            document.body.addEventListener("click", () => sound.play(), { once: true });
-        });
+const fadeTargets = [image, text, bar, label];
 
-        // Fade in after 2 seconds
-        setTimeout(() => {
-            image.style.opacity = "1";
-            text.style.opacity = "1";
-            bar.style.opacity = "1";
-            label.style.opacity = "1";
+function setOpacity(value) {
+  fadeTargets.forEach((el) => (el.style.opacity = value));
+}
 
-            // Stay visible for 9 seconds
-            setTimeout(() => {
+if (image && text && sound && bar && label) {
 
-                // Fade out over 2 seconds
-                image.style.opacity = "0";
-                text.style.opacity = "0";
-                bar.style.opacity = "0";
-                label.style.opacity = "0";
+  // Try to play sound; if autoplay is blocked, wait for the first interaction
+  sound.play().catch(() => {
+    const resume = () => sound.play();
+    document.body.addEventListener("click", resume, { once: true });
+    document.addEventListener("keydown", resume, { once: true });
+  });
 
-                // Redirect after fade-out
-                setTimeout(() => {
-                    window.location.href = "https://ravda-boeing.github.io/SinkOSAuth/lockscreen.html";
-                }, 2000);
+  // Fade in
+  setOpacity("1");
 
-            }, 9000);
+  // Stay visible, fade out, then continue to the lockscreen
+  setTimeout(() => {
+    setOpacity("0");
+    setTimeout(() => {
+      window.location.href = NEXT_PAGE;
+    }, FADE_MS);
+  }, HOLD_MS);
 
-        }, 2000);
-
-    } else {
-        console.error("Boot elements missing or wrong type.");
-    }
-
-});
+} else {
+  console.error("Boot elements missing or wrong type.");
+}
