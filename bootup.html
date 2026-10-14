@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Sink OS Boot</title>
   <link rel="icon" href="favicon.png" type="image/x-icon">
 
@@ -19,6 +20,7 @@
       font-family: 'Segoe UI', sans-serif;
     }
 
+    /* Elements faded in by boot.js */
     #boot-image, #boot-text, #config-bar, #config-label {
       opacity: 0;
       transition: opacity 2s ease;
@@ -34,39 +36,36 @@
       margin-top: 20px;
     }
 
-    /* Config bar */
+    /* Configuring bar (sliding block) */
     #config-bar {
       width: 200px;
       height: 10px;
-      background: #222;
+      background: #ddd;
       border-radius: 5px;
       overflow: hidden;
       margin: 20px auto 0;
-      transition: opacity 1s ease;
     }
 
     #config-bar .block {
       width: 40px;
       height: 100%;
-      background: black;
+      background: #000;
       border-radius: 5px;
       animation: slide 1.2s linear infinite;
     }
 
     @keyframes slide {
-      0% { transform: translateX(-40px); }
+      0%   { transform: translateX(-40px); }
       100% { transform: translateX(200px); }
     }
 
     #config-label {
       text-align: center;
       margin-top: 10px;
-      color: black;
       font-size: 14px;
-      transition: opacity 1s ease;
     }
 
-    /* Initializing bar */
+    /* Initializing bar (bottom of screen, 2s) */
     #init-container {
       position: fixed;
       bottom: 40px;
@@ -112,7 +111,6 @@
   <div id="config-bar">
     <div class="block"></div>
   </div>
-
   <div id="config-label">Configuring beta OS</div>
 
   <div id="init-container">
@@ -121,25 +119,28 @@
   </div>
 
   <script>
+    const INIT_DURATION_MS = 2000; // keep in sync with #init-fill transition
+
     const initContainer = document.getElementById("init-container");
     const initFill = document.getElementById("init-fill");
 
-    // Start the bar (two frames so the CSS transition triggers)
+    // Two frames so the CSS width transition reliably triggers
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         initFill.style.width = "100%";
       });
     });
 
-    // After 2s, fade out the bar and load the boot script
+    // When initializing finishes, fade the bar out and start the boot sequence
     setTimeout(() => {
-      initContainer.style.opacity = 0;
+      initContainer.style.opacity = "0";
 
       const boot = document.createElement("script");
       boot.type = "module";
       boot.src = "dist/boot.js";
+      boot.onerror = () => console.error("Failed to load dist/boot.js");
       document.body.appendChild(boot);
-    }, 2000);
+    }, INIT_DURATION_MS);
   </script>
 
 </body>
