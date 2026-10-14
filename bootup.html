@@ -65,6 +65,40 @@
       font-size: 14px;
       transition: opacity 1s ease;
     }
+
+    /* Initializing bar */
+    #init-container {
+      position: fixed;
+      bottom: 40px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 300px;
+      text-align: center;
+      transition: opacity 0.5s ease;
+    }
+
+    #init-label {
+      font-size: 14px;
+      letter-spacing: 2px;
+      margin-bottom: 10px;
+      opacity: 0.8;
+    }
+
+    #init-track {
+      width: 100%;
+      height: 6px;
+      background: #ddd;
+      border-radius: 3px;
+      overflow: hidden;
+    }
+
+    #init-fill {
+      width: 0%;
+      height: 100%;
+      background: #000;
+      border-radius: 3px;
+      transition: width 2s linear;
+    }
   </style>
 </head>
 
@@ -81,6 +115,32 @@
 
   <div id="config-label">Configuring beta OS</div>
 
-  <script type="module" src="dist/boot.js"></script>
+  <div id="init-container">
+    <div id="init-label">Initializing</div>
+    <div id="init-track"><div id="init-fill"></div></div>
+  </div>
+
+  <script>
+    const initContainer = document.getElementById("init-container");
+    const initFill = document.getElementById("init-fill");
+
+    // Start the bar (two frames so the CSS transition triggers)
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        initFill.style.width = "100%";
+      });
+    });
+
+    // After 2s, fade out the bar and load the boot script
+    setTimeout(() => {
+      initContainer.style.opacity = 0;
+
+      const boot = document.createElement("script");
+      boot.type = "module";
+      boot.src = "dist/boot.js";
+      document.body.appendChild(boot);
+    }, 2000);
+  </script>
+
 </body>
 </html>
