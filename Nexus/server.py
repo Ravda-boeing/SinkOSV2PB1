@@ -357,3 +357,9 @@ async def delete_conversation(session_id: str, authorization: Optional[str] = He
     active_sessions.pop((user_id, session_id), None)
 
     return {"success": True}
+
+# Lets `python server.py` start the app (used by the SinkOSV2PB1 Render service).
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
