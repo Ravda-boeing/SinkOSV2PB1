@@ -674,5 +674,7 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="app.js" defer></script>
+  <!-- Memory panel: must come AFTER app.js (reuses its API_URL, authHeaders, goToLogin) -->
+  <script src="memory-panel.js" defer></script>
 </body>
 </html>
