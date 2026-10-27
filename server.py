@@ -5,7 +5,7 @@ import traceback
 from datetime import datetime
 from typing import Optional, List
 
-from fastapi import FastAPI, HTTPException, Header, File, UploadFile, Form
+from fastapi import FastAPI, HTTPException, Header, File, UploadFile, Form, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -13,6 +13,8 @@ from pydantic import BaseModel
 from google import genai
 from google.genai import types
 from supabase import create_client, Client
+
+from nexus_memory import build_system_prompt, update_memories, create_memory_router
 
 app = FastAPI()
 
@@ -24,6 +26,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# SECURITY NOTE: this serves the WHOLE backend folder (including server.py and
+# nexus_memory.py) at /static/*. Point it at a dedicated subfolder, or remove it
+# if nothing depends on it. Left unchanged here so nothing breaks unexpectedly.
 app.mount("/static", StaticFiles(directory="."), name="static")
 
 API_KEY = os.environ.get("GEMINI_API_KEY")
@@ -33,6 +38,9 @@ MODEL = "gemini-2.5-flash-lite"
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY")
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+
+BASE_PROMPT = "You are Nexus, the AI for a browser based operating system named SinkOS. Be concise and helpful. Be enthusiastic where appropriate. there is to be NO markdowns, NO code blocks, NO lists, NO emojis, and NO formatting of any kind in your responses. Only plain text. Always respond in plain text. NEVER break character. Be honest with your answers, if you feel like there is no solid answer for the user's quiery, tell them that, they want an AI that's honest and sticks to Sink OS's values, not a lying machine. Treat the user with uptmost respect and kindness, they are your friend and you want to help them in any way you can, always try to talk in first person and be as human as possible."
+
 
 def get_user_from_token(authorization: Optional[str]) -> str:
     if not authorization or not authorization.startswith("Bearer "):
@@ -48,30 +56,38 @@ def get_user_from_token(authorization: Optional[str]) -> str:
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid or expired session")
 
+
+# Memory endpoints: /memories (GET, POST, PATCH, DELETE) and /memory-settings (GET, PUT)
+app.include_router(create_memory_router(supabase, get_user_from_token))
+
+# Keyed by (user_id, session_id) so one user can never read or append to another user's cached chat.
 active_sessions: dict = {}
+
 
 class MessageRequest(BaseModel):
     message: str
     session_id: Optional[str] = None
 
+
 @app.post("/chat")
-async def chat(request: MessageRequest, authorization: Optional[str] = Header(None)):
+async def chat(request: MessageRequest, background_tasks: BackgroundTasks, authorization: Optional[str] = Header(None)):
     user_id = get_user_from_token(authorization)
     try:
         session_id = request.session_id or str(uuid.uuid4())
+        cache_key = (user_id, session_id)
 
-        if session_id not in active_sessions:
+        if cache_key not in active_sessions:
             row = supabase.table("nexus_conversations") \
                 .select("messages") \
                 .eq("id", session_id) \
                 .eq("user_id", user_id) \
                 .execute()
-            active_sessions[session_id] = row.data[0]["messages"] if row.data else []
+            active_sessions[cache_key] = row.data[0]["messages"] if row.data else []
 
-        active_sessions[session_id].append({"role": "user", "content": request.message})
+        active_sessions[cache_key].append({"role": "user", "content": request.message})
 
         history = []
-        messages = active_sessions[session_id]
+        messages = active_sessions[cache_key]
         for msg in messages[:-1]:
             role = "model" if msg["role"] == "assistant" else "user"
             history.append(types.Content(role=role, parts=[types.Part(text=msg["content"])]))
@@ -81,12 +97,12 @@ async def chat(request: MessageRequest, authorization: Optional[str] = Header(No
             contents=history + [types.Content(role="user", parts=[types.Part(text=request.message)])],
             config=types.GenerateContentConfig(
                 max_output_tokens=512,
-                system_instruction="You are Nexus, the AI for a browser based operating system named SinkOS. Be concise and helpful. Be enthusiastic where appropriate. there is to be NO markdowns, NO code blocks, NO lists, NO emojis, and NO formatting of any kind in your responses. Only plain text. Always respond in plain text. NEVER break character. Be honest with your answers, if you feel like there is no solid answer for the user's quiery, tell them that, they want an AI that's honest and sticks to Sink OS's values, not a lying machine. Treat the user with uptmost respect and kindness, they are your friend and you want to help them in any way you can, always try to talk in first person and be as human as possible."
+                system_instruction=build_system_prompt(supabase, user_id, BASE_PROMPT)
             )
         )
 
         reply = response.text
-        active_sessions[session_id].append({"role": "assistant", "content": reply})
+        active_sessions[cache_key].append({"role": "assistant", "content": reply})
 
         title = request.message[:40] + "..." if len(request.message) > 40 else request.message
         supabase.table("nexus_conversations").upsert({
@@ -94,8 +110,11 @@ async def chat(request: MessageRequest, authorization: Optional[str] = Header(No
             "user_id": user_id,
             "title": title,
             "created_at": datetime.now().isoformat(),
-            "messages": active_sessions[session_id]
+            "messages": active_sessions[cache_key]
         }).execute()
+
+        # Runs AFTER the response is sent. Only the user's own typed text is analysed.
+        background_tasks.add_task(update_memories, supabase, client, MODEL, user_id, session_id, request.message)
 
         return {"reply": reply, "session_id": session_id}
 
@@ -118,6 +137,7 @@ ATTACHMENTS_BUCKET = "nexus-attachments"       # must exist in Supabase Storage 
 
 @app.post("/chat/upload")
 async def chat_upload(
+    background_tasks: BackgroundTasks,
     message: str = Form(""),
     session_id: Optional[str] = Form(None),
     files: List[UploadFile] = File(...),
@@ -132,14 +152,15 @@ async def chat_upload(
             )
 
         session_id = session_id or str(uuid.uuid4())
+        cache_key = (user_id, session_id)
 
-        if session_id not in active_sessions:
+        if cache_key not in active_sessions:
             row = supabase.table("nexus_conversations") \
                 .select("messages") \
                 .eq("id", session_id) \
                 .eq("user_id", user_id) \
                 .execute()
-            active_sessions[session_id] = row.data[0]["messages"] if row.data else []
+            active_sessions[cache_key] = row.data[0]["messages"] if row.data else []
 
         gemini_parts = []
         stored_attachments = []
@@ -203,7 +224,7 @@ async def chat_upload(
         # History is replayed as text only — attachments from earlier turns
         # are not re-uploaded to Gemini on later turns.
         history = []
-        for msg in active_sessions[session_id]:
+        for msg in active_sessions[cache_key]:
             role = "model" if msg["role"] == "assistant" else "user"
             history.append(types.Content(role=role, parts=[types.Part(text=msg.get("content") or "")]))
 
@@ -212,19 +233,19 @@ async def chat_upload(
             contents=history + [types.Content(role="user", parts=gemini_parts)],
             config=types.GenerateContentConfig(
                 max_output_tokens=768,
-                system_instruction="You are Nexus, the AI for a browser based operating system named SinkOS. Be concise and helpful. Be enthusiastic where appropriate. there is to be NO markdowns, NO code blocks, NO lists, NO emojis, and NO formatting of any kind in your responses. Only plain text. Always respond in plain text. NEVER break character. Be honest with your answers, if you feel like there is no solid answer for the user's quiery, tell them that, they want an AI that's honest and sticks to Sink OS's values, not a lying machine. Treat the user with uptmost respect and kindness, they are your friend and you want to help them in any way you can, always try to talk in first person and be as human as possible."
+                system_instruction=build_system_prompt(supabase, user_id, BASE_PROMPT)
             )
         )
 
         reply = response.text
         user_content = message.strip()
 
-        active_sessions[session_id].append({
+        active_sessions[cache_key].append({
             "role": "user",
             "content": user_content,
             "attachments": stored_attachments,
         })
-        active_sessions[session_id].append({"role": "assistant", "content": reply})
+        active_sessions[cache_key].append({"role": "assistant", "content": reply})
 
         title_source = user_content or (stored_attachments[0]["name"] if stored_attachments else "Attachment")
         title = title_source[:40] + "..." if len(title_source) > 40 else title_source
@@ -233,8 +254,11 @@ async def chat_upload(
             "user_id": user_id,
             "title": title,
             "created_at": datetime.now().isoformat(),
-            "messages": active_sessions[session_id]
+            "messages": active_sessions[cache_key]
         }).execute()
+
+        # Only the typed message is analysed. Attachment contents and the model's reply never are.
+        background_tasks.add_task(update_memories, supabase, client, MODEL, user_id, session_id, message)
 
         return {"reply": reply, "session_id": session_id, "attachments": stored_attachments}
 
@@ -330,13 +354,6 @@ async def delete_conversation(session_id: str, authorization: Optional[str] = He
         .eq("user_id", user_id) \
         .execute()
 
-    if session_id in active_sessions:
-        del active_sessions[session_id]
+    active_sessions.pop((user_id, session_id), None)
 
     return {"success": True}
-
-
-if __name__ == "__main__":
-    import uvicorn
-    port = int(os.environ.get("PORT", 8000))
-    uvicorn.run(app, host="0.0.0.0", port=port)
