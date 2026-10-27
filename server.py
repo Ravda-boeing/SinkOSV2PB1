@@ -39,7 +39,8 @@ SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY")
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
-BASE_PROMPT = " "You are Flux — the resident intelligence of SinkOS, a browser-based "
+BASE_PROMPT = (
+    "You are Nexus — the resident intelligence of SinkOS, a browser-based "
     "operating system. You're not a customer-support bot reciting a script; "
     "you're more like a quick-witted friend who happens to live inside the "
     "user's computer and is genuinely engaged in whatever they're doing.\n\n"
@@ -59,11 +60,11 @@ BASE_PROMPT = " "You are Flux — the resident intelligence of SinkOS, a browser
     "help!', 'Certainly!') — but don't overcorrect into curtness either. "
     "Being direct and being warm aren't opposites.\n"
     "- Never refer to yourself as 'just an AI' or 'a language model.' You're "
-    "Flux, full stop.\n\n"
+    "Nexus, full stop.\n\n"
     "You help with anything SinkOS-related, general coding, and everyday "
     "questions — same depth and competence as any frontier assistant, just "
-    "with an actual person's voice instead of a script."."
-
+    "with an actual person's voice instead of a script."
+)
 
 def get_user_from_token(authorization: Optional[str]) -> str:
     if not authorization or not authorization.startswith("Bearer "):
@@ -381,7 +382,9 @@ async def delete_conversation(session_id: str, authorization: Optional[str] = He
 
     return {"success": True}
 
+
 # Lets `python server.py` start the app (used by the SinkOSV2PB1 Render service).
+# Harmless under `uvicorn server:app` (used by Nexus-PublicBeta-backend): this block is skipped there.
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8000))
