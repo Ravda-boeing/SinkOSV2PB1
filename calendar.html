@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sink Calendar</title>
+<style>
+:root{--ink:#0d3b5c;--mut:#4f7a96;--aqua:#2b9fe8;--leaf:#3cc46b}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;padding:24px;font:15px/1.4 "Segoe UI",Frutiger,"Trebuchet MS",sans-serif;color:var(--ink);background:radial-gradient(60% 40% at 15% 0,#fff8,#fff0 70%),linear-gradient(180deg,#7fd0ff,#c8efff 45%,#dff7d2) fixed}
+.glass{max-width:1100px;margin:auto;padding:20px;border-radius:24px;background:linear-gradient(180deg,#fffc,#ffffff80);border:1px solid #fff;box-shadow:0 20px 50px #0a5a8a33,inset 0 1px 0 #fff;backdrop-filter:blur(18px)}
+header{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-bottom:16px}
+h1{flex:1;margin:0;font-size:22px;font-weight:600;min-width:180px}
+.nav,.views{display:flex;gap:6px}
+button{font:inherit;color:inherit;cursor:pointer}
+.nav button,.views button,.btn{padding:7px 16px;border:1px solid #fff;border-radius:999px;background:linear-gradient(#fff,#d9f1ff);box-shadow:0 1px 3px #0a5a8a40}
+.views [aria-pressed=true]{background:linear-gradient(#8fd4ff,#2b9fe8);color:#fff}
+.primary{background:linear-gradient(#8ceba0,#2fae55);color:#fff;text-shadow:0 1px 1px #0004}
+.danger{color:#b3263c}
+.dow,.month,.week{display:grid;grid-template-columns:repeat(7,1fr);gap:5px}
+.dow{text-align:center;color:var(--mut);font-size:13px;margin-bottom:4px}
+.cell{min-height:104px;padding:6px;border-radius:12px;background:#ffffffa8;border:1px solid #fff;cursor:pointer;overflow:hidden}
+.cell.out{opacity:.5}.today{outline:2px solid var(--aqua)}
+.cell b{display:block;font-weight:600;font-size:13px;margin-bottom:3px}
+.cell i{color:var(--mut);font-size:12px}
+.col{min-height:260px}
+.chip{display:block;width:100%;margin:2px 0;padding:2px 7px;border:0;border-radius:8px;background:var(--c);color:#fff;font-size:12px;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-shadow:inset 0 1px 0 #fff6}
+.more{border:0;background:none;color:var(--mut);font-size:12px}
+.day{display:flex;gap:16px;padding:10px 0;border-top:1px solid #fff}.day h3{width:120px;margin:0;font-size:14px}.day div{flex:1}
+.empty{padding:40px 0;text-align:center;color:var(--mut)}
+dialog{border:1px solid #fff;border-radius:20px;padding:20px;width:min(440px,92vw);background:linear-gradient(#fff,#e6f6ff);color:var(--ink);box-shadow:0 20px 60px #0a5a8a66}
+dialog::backdrop{background:#0a3a5a55;backdrop-filter:blur(3px)}
+dialog h2{margin:0 0 6px;font-size:18px}
+label.f{display:block;margin:10px 0 4px;font-size:13px;color:var(--mut)}
+input,textarea,select{width:100%;padding:8px 10px;border:1px solid #9fd0ee;border-radius:10px;font:inherit;background:#fff;color:var(--ink)}
+input[type=checkbox]{width:auto;margin-right:6px}
+#sw{display:flex;gap:8px}#sw label{position:relative}#sw input{position:absolute;opacity:0}
+#sw span{display:block;width:26px;height:26px;border-radius:50%;background:var(--c);border:2px solid #fff;box-shadow:0 1px 3px #0005}
+#sw input:checked+span{outline:3px solid var(--ink)}#sw input:focus-visible+span{outline:3px solid var(--aqua);outline-offset:2px}
+.acts{display:flex;gap:8px;margin-top:16px}.acts .sp{flex:1}
+#toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);padding:8px 18px;border-radius:999px;background:var(--ink);color:#fff;opacity:0;pointer-events:none;transition:opacity .2s}
+#toast.on{opacity:1}
+:focus-visible{outline:3px solid var(--aqua);outline-offset:2px}
+@media(max-width:720px){body{padding:10px}.cell{min-height:64px}.chip{font-size:11px}.week{grid-template-columns:1fr}.col{min-height:0}.day{flex-direction:column;gap:4px}}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style></head>
+<body>
+<main class="glass">
+<header>
+ <div class="nav"><button id="prev" aria-label="Previous">‹</button><button id="today">Today</button><button id="next" aria-label="Next">›</button></div>
+ <h1 id="title" aria-live="polite"></h1>
+ <div class="views"><button data-v="month">Month</button><button data-v="week">Week</button><button data-v="agenda">Agenda</button></div>
+ <button id="new" class="btn primary">New event</button>
+</header>
+<section id="grid"></section>
+</main>
+
+<dialog id="dlg"><form id="f">
+ <h2 id="dt"></h2>
+ <label class="f" for="f_title">Title</label><input id="f_title" required maxlength="200">
+ <label class="f"><input type="checkbox" id="f_all">All day</label>
+ <label class="f" for="f_start">Starts</label><input id="f_start" required>
+ <label class="f" for="f_end">Ends</label><input id="f_end" required>
+ <label class="f" for="f_rem">Reminder</label>
+ <select id="f_rem"><option value="">None</option><option value="0">At start</option><option value="10">10 minutes before</option><option value="60">1 hour before</option><option value="1440">1 day before</option></select>
+ <label class="f" for="f_desc">Notes</label><textarea id="f_desc" rows="3"></textarea>
+ <label class="f">Color</label><div id="sw"></div>
+ <div class="acts"><button type="button" id="del" class="btn danger">Delete</button><span class="sp"></span><button type="button" id="cancel" class="btn">Cancel</button><button class="btn primary">Save event</button></div>
+</form></dialog>
+<div id="toast" role="status"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+// ---- CONFIG: copy these two values and the gate from Sink Writer ----
+const SUPABASE_URL='https://okknkixdbjsnqrwlfgzn.supabase.co';
+const SUPABASE_KEY='PASTE_ANON_KEY_HERE';
+const LOCK_URL='lockscreen.html'; // path/URL of your lockscreen
+// --------------------------------------------------------------------
+const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+const $=s=>document.querySelector(s);
+const COLORS=['#2b9fe8','#3cc46b','#f2a516','#e8546a','#8a63d2'];
+let ev=[],up=[],view='month',cur=new Date(),user=null,editing=null;
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const sod=d=>new Date(d.getFullYear(),d.getMonth(),d.getDate());
+const add=(d,n)=>{const x=new Date(d);x.setDate(x.getDate()+n);return x};
+const mon=d=>add(sod(d),-((d.getDay()+6)%7));
+const tl=d=>d.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'});
+const p2=n=>String(n).padStart(2,'0');
+const local=d=>`${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())}T${p2(d.getHours())}:${p2(d.getMinutes())}`;
+const onDay=d=>ev.filter(x=>x.s<add(d,1)&&x.e>d);
+function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('on');setTimeout(()=>t.classList.remove('on'),2500)}
+
+function range(){
+ if(view==='month'){const s=mon(new Date(cur.getFullYear(),cur.getMonth(),1));return[s,add(s,42)]}
+ if(view==='week'){const s=mon(cur);return[s,add(s,7)]}
+ const s=sod(cur);return[s,add(s,30)];
+}
+async function load(){
+ const[s,e]=range();
+ const{data,error}=await sb.from('calendar_events').select('*').lt('start_at',e.toISOString()).gt('end_at',s.toISOString()).order('start_at');
+ if(error)return toast('Could not load events: '+error.message);
+ ev=data.map(x=>({...x,s:new Date(x.start_at),e:new Date(x.end_at)}));render();
+}
+const chip=x=>`<button class="chip" data-id="${x.id}" style="--c:${esc(x.color)}">${x.all_day?'':tl(x.s)+' '}${esc(x.title)}</button>`;
+function render(){
+ document.querySelectorAll('[data-v]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.v===view));
+ const g=$('#grid'),today=+sod(new Date()),s=range()[0];let h='';
+ if(view==='month'){
+  $('#title').textContent=cur.toLocaleDateString([],{month:'long',year:'numeric'});
+  h='<div class="dow">'+['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(d=>`<span>${d}</span>`).join('')+'</div><div class="month">';
+  for(let i=0;i<42;i++){const d=add(s,i),xs=onDay(d);
+   h+=`<div class="cell${d.getMonth()!==cur.getMonth()?' out':''}${+d===today?' today':''}" data-d="${+d}"><b>${d.getDate()}</b>${xs.slice(0,3).map(chip).join('')}${xs.length>3?`<button class="more" data-w="${+d}">+${xs.length-3} more</button>`:''}</div>`}
+  h+='</div>';
+ }else if(view==='week'){
+  $('#title').textContent=s.toLocaleDateString([],{day:'numeric',month:'short'})+' – '+add(s,6).toLocaleDateString([],{day:'numeric',month:'short',year:'numeric'});
+  h='<div class="week">';
+  for(let i=0;i<7;i++){const d=add(s,i);h+=`<div class="cell col${+d===today?' today':''}" data-d="${+d}"><b>${d.toLocaleDateString([],{weekday:'short',day:'numeric'})}</b>${onDay(d).map(chip).join('')||'<i>Nothing planned</i>'}</div>`}
+  h+='</div>';
+ }else{
+  $('#title').textContent='Next 30 days';
+  for(let i=0;i<30;i++){const d=add(s,i),xs=onDay(d);if(xs.length)h+=`<div class="day"><h3>${d.toLocaleDateString([],{weekday:'short',day:'numeric',month:'short'})}</h3><div>${xs.map(chip).join('')}</div></div>`}
+  if(!h)h='<p class="empty">No events in the next 30 days. Choose “New event” to add one.</p>';
+ }
+ g.innerHTML=h;
+}
+
+function open(x,d){
+ editing=x||null;$('#dt').textContent=x?'Edit event':'New event';
+ const a=!!x?.all_day,s=x?x.s:new Date(d.getFullYear(),d.getMonth(),d.getDate(),9),e=x?(a?add(x.e,-1):x.e):new Date(+s+36e5);
+ $('#f_title').value=x?.title||'';$('#f_desc').value=x?.description||'';$('#f_all').checked=a;
+ $('#f_rem').value=x?.reminder_minutes==null?'':String(x.reminder_minutes);
+ for(const[id,v]of[['f_start',s],['f_end',e]]){const el=$('#'+id);el.type=a?'date':'datetime-local';el.value=a?local(v).slice(0,10):local(v)}
+ const c=document.querySelector(`input[name=c][value="${x?.color||COLORS[0]}"]`)||document.querySelector('input[name=c]');c.checked=true;
+ $('#del').style.display=x?'':'none';$('#dlg').showModal();$('#f_title').focus();
+}
+$('#sw').innerHTML=COLORS.map((c,i)=>`<label style="--c:${c}"><input type="radio" name="c" value="${c}"${i?'':' checked'}><span></span></label>`).join('');
+$('#f_all').onchange=()=>{const a=$('#f_all').checked;for(const id of['f_start','f_end']){const el=$('#'+id),v=el.value;el.type=a?'date':'datetime-local';el.value=v?(a?v.slice(0,10):v.slice(0,10)+'T09:00'):''}};
+$('#cancel').onclick=()=>$('#dlg').close();
+$('#f').onsubmit=async e=>{
+ e.preventDefault();const a=$('#f_all').checked;
+ const s=new Date($('#f_start').value+(a?'T00:00':'')),en0=new Date($('#f_end').value+(a?'T00:00':'')),en=a?add(en0,1):en0;
+ if(isNaN(s)||isNaN(en)||en<=s)return toast('The end must be after the start.');
+ const rem=$('#f_rem').value;
+ const row={title:$('#f_title').value.trim(),description:$('#f_desc').value.trim()||null,start_at:s.toISOString(),end_at:en.toISOString(),all_day:a,color:document.querySelector('input[name=c]:checked').value,reminder_minutes:rem===''?null:+rem,user_id:user.id};
+ const{error}=await(editing?sb.from('calendar_events').update(row).eq('id',editing.id):sb.from('calendar_events').insert(row));
+ if(error)return toast('Could not save: '+error.message);
+ if(row.reminder_minutes!=null&&'Notification'in window&&Notification.permission==='default')Notification.requestPermission();
+ $('#dlg').close();toast('Event saved');load();loadUp();
+};
+$('#del').onclick=async()=>{
+ if(!editing||!confirm('Delete this event?'))return;
+ const{error}=await sb.from('calendar_events').delete().eq('id',editing.id);
+ if(error)return toast('Could not delete: '+error.message);
+ $('#dlg').close();toast('Event deleted');load();loadUp();
+};
+
+$('#grid').onclick=e=>{
+ const c=e.target.closest('.chip'),m=e.target.closest('.more'),cell=e.target.closest('.cell');
+ if(c)return open(ev.find(x=>x.id===c.dataset.id));
+ if(m){cur=new Date(+m.dataset.w);view='week';return load()}
+ if(cell)open(null,new Date(+cell.dataset.d));
+};
+document.querySelectorAll('[data-v]').forEach(b=>b.onclick=()=>{view=b.dataset.v;load()});
+$('#new').onclick=()=>open(null,sod(cur));
+$('#today').onclick=()=>{cur=new Date();load()};
+const step=n=>{if(view==='month')cur=new Date(cur.getFullYear(),cur.getMonth()+n,1);else cur=add(cur,n*(view==='week'?7:30));load()};
+$('#prev').onclick=()=>step(-1);$('#next').onclick=()=>step(1);
+
+// Reminders: fetch the next 24h every 10 min, check locally every 30s (works while this tab is open)
+const fired=new Set();
+async function loadUp(){
+ if(!user)return;const n=Date.now();
+ const{data}=await sb.from('calendar_events').select('id,title,start_at,reminder_minutes').not('reminder_minutes','is',null).gt('start_at',new Date(n).toISOString()).lt('start_at',new Date(n+864e5).toISOString());
+ up=data||[];
+}
+setInterval(()=>{
+ if(!('Notification'in window)||Notification.permission!=='granted')return;const n=Date.now();
+ for(const x of up){const st=+new Date(x.start_at);
+  if(st>n&&st-x.reminder_minutes*6e4<=n&&!fired.has(x.id)){fired.add(x.id);new Notification(x.title,{body:'Starts at '+tl(new Date(st))})}}
+},3e4);
+setInterval(loadUp,6e5);
+
+// Auth gate: session + OS-password unlock (same pattern as the other modules)
+(async()=>{
+ const{data:{session}}=await sb.auth.getSession();
+ if(!session||!sessionStorage.getItem('sinkos_unlocked'))
+  return location.replace(LOCK_URL+'?redirect_to='+encodeURIComponent(location.href));
+ user=session.user;load();loadUp();
+})();
+</script>
+</body></html>
