@@ -455,50 +455,115 @@ userInput.addEventListener("keydown", (e) => {
 newChatBtn.addEventListener("click", startNewChat);
 
 // ════════════════════════════════════════════════════════════════════════════
-// ─── VOICE MODE ─────────────────────────────────────────────────────────────
+// ─── VOICE MODE (Gemini 3.8 Live) ───────────────────────────────────────────
 // ════════════════════════════════════════════════════════════════════════════
+// How it works: the browser asks our backend for a one-use token
+// (/voice/live-token), then streams mic audio straight to Gemini over a
+// websocket and plays back the audio it returns. The personality + memory
+// prompt lives inside the token, so it never reaches the browser. Finished
+// turns are POSTed to /voice/transcript so they show up in chat history and
+// feed Nexus memory exactly like typed messages.
 
-const micBtn           = document.getElementById("nexus-mic-btn");
-const voiceOverlay     = document.getElementById("voice-mode-overlay");
-const voiceBackBtn     = document.getElementById("voice-back-btn");
-const voiceOrb         = document.getElementById("voice-orb");
-const voiceStatusText  = document.getElementById("voice-status-text");
+const micBtn            = document.getElementById("nexus-mic-btn");
+const voiceOverlay      = document.getElementById("voice-mode-overlay");
+const voiceBackBtn      = document.getElementById("voice-back-btn");
+const voiceOrb          = document.getElementById("voice-orb");
+const voiceStatusText   = document.getElementById("voice-status-text");
 const voiceTranscriptEl = document.getElementById("voice-transcript-text");
-const voiceWaveformSvg = document.getElementById("voice-waveform");
+const voiceWaveformSvg  = document.getElementById("voice-waveform");
 
 const VOICE_STATE_LABELS = {
-  idle:       "Tap to speak",
-  listening:  "Nexus is listening…",
-  processing: "Thinking…",
-  speaking:   "Nexus is speaking…",
+  idle:       "Tap to start talking",
+  listening:  "Listening… tap to end",
+  processing: "Connecting…",
+  speaking:   "Nexus is speaking… tap to interrupt",
   error:      "Something went wrong — tap to retry",
 };
 
-// Web Speech API TTS by default (no backend/API key needed). Swap the body of
-// speak() later if you move to a hosted TTS provider — everything else in
-// this controller (state machine, barge-in, UI) stays the same.
-const synth = window.speechSynthesis;
+// Pinned SDK version, loaded on first use so the rest of Nexus never waits on it.
+const LIVE_SDK_URL = "https://cdn.jsdelivr.net/npm/@google/genai@2.29.1/+esm";
+let liveSdkPromise = null;
+function loadLiveSdk() {
+  if (!liveSdkPromise) liveSdkPromise = import(LIVE_SDK_URL).catch((e) => { liveSdkPromise = null; throw e; });
+  return liveSdkPromise;
+}
+
+// Runs on the audio thread: downsamples whatever the mic gives us (usually
+// 44.1/48 kHz) to 16 kHz mono 16-bit PCM and ships it in ~100 ms chunks.
+const MIC_WORKLET_SRC = `
+class Pcm16Capture extends AudioWorkletProcessor {
+  constructor() {
+    super();
+    this.ratio = sampleRate / 16000;
+    this.pos = 0; this.acc = 0; this.cnt = 0;
+    this.buf = new Int16Array(1600);
+    this.n = 0;
+  }
+  process(inputs) {
+    const ch = inputs[0] && inputs[0][0];
+    if (!ch) return true;
+    for (let i = 0; i < ch.length; i++) {
+      this.acc += ch[i]; this.cnt++; this.pos += 1;
+      if (this.pos >= this.ratio) {
+        this.pos -= this.ratio;
+        const v = Math.max(-1, Math.min(1, this.acc / this.cnt));
+        this.acc = 0; this.cnt = 0;
+        this.buf[this.n++] = Math.round(v * 32767);
+        if (this.n === this.buf.length) {
+          this.port.postMessage(this.buf.buffer.slice(0));
+          this.n = 0;
+        }
+      }
+    }
+    return true;
+  }
+}
+registerProcessor("pcm16-capture", Pcm16Capture);
+`;
+
+function bytesToBase64(bytes) {
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(bin);
+}
+
+function base64ToBytes(b64) {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
 
 class VoiceModeController {
   constructor() {
     this.state = "idle";
+    this.session = null;
     this.stream = null;
-    this.recorder = null;
-    this.chunks = [];
-    this.audioCtx = null;
-    this.analyser = null;
+    this.micCtx = null;
+    this.outCtx = null;
+    this.micAnalyser = null;
+    this.outAnalyser = null;
+    this.workletNode = null;
+    this.sources = new Set();
+    this.nextTime = 0;
     this.rafId = null;
-    this.utterance = null;
-    this.bargeInArmed = false;
+    this.userText = "";
+    this.modelText = "";
+    this.turnDone = false;
+    this.skipAudio = false;   // true after a manual interrupt, until the model's turn ends
+    this.saveChain = Promise.resolve();
+    this.startToken = 0;
   }
 
-  setState(state) {
+  setState(state, label) {
     this.state = state;
     voiceOrb.dataset.state = state;
-    voiceStatusText.textContent = VOICE_STATE_LABELS[state] || "";
+    voiceStatusText.textContent = label || VOICE_STATE_LABELS[state] || "";
   }
 
-  async open() {
+  open() {
     voiceOverlay.classList.add("open");
     document.body.style.overflow = "hidden";
     voiceTranscriptEl.textContent = "";
@@ -506,256 +571,272 @@ class VoiceModeController {
   }
 
   close() {
-    this.teardown();
+    this.stop();
     voiceOverlay.classList.remove("open");
     document.body.style.overflow = "";
   }
 
-  // ── Mic capture ──────────────────────────────────────────────────────────
-  async startListening() {
-    if (this.state === "listening") return;
-    try {
-      this.stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          channelCount: 1,
-          sampleRate: 16000,
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-      });
-    } catch (err) {
-      console.error("Mic access failed:", err);
-      voiceTranscriptEl.textContent = "Microphone access denied. Check your browser/site permissions.";
-      this.setState("error");
-      return;
-    }
-
-    this.chunks = [];
-    const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-      ? "audio/webm;codecs=opus"
-      : "audio/webm";
-    this.recorder = new MediaRecorder(this.stream, { mimeType });
-    this.recorder.ondataavailable = (e) => { if (e.data.size > 0) this.chunks.push(e.data); };
-    this.recorder.start(250);
-
-    this.setState("listening");
-    voiceTranscriptEl.textContent = "";
-    this._attachAnalyser(this.stream, {
-      onSilence: () => this.finishListening(),
-      onNoSpeechTimeout: () => this.cancelListening("Didn't hear anything — tap to try again."),
-      silenceMs: 900,
-      silenceThreshold: 10,
-      speechThreshold: 14,     // must exceed this at least once before the silence timer arms
-      noSpeechTimeoutMs: 8000, // give up if the user never starts talking
-      maxListenMs: 30000,
-    });
-  }
-
-  cancelListening(message) {
-    this._stopAnalyser();
-    this.stream?.getTracks().forEach((t) => t.stop());
-    if (this.recorder && this.recorder.state !== "inactive") {
-      try { this.recorder.stop(); } catch { /* already stopped */ }
-    }
-    voiceTranscriptEl.textContent = message || "";
-    this.setState("idle");
-  }
-
-  async finishListening() {
-    if (this.state !== "listening" || !this.recorder) return;
-
-    const blob = await new Promise((resolve) => {
-      this.recorder.onstop = () => {
-        resolve(new Blob(this.chunks, { type: this.recorder.mimeType || "audio/webm" }));
-      };
-      this.recorder.stop();
-    });
-    this._stopAnalyser();
-    this.stream?.getTracks().forEach((t) => t.stop());
-
-    if (blob.size < 500) { // essentially silence, nothing worth sending
-      this.setState("idle");
-      return;
-    }
-
+  // ── Start a live session ─────────────────────────────────────────────────
+  async start() {
+    if (this.state !== "idle" && this.state !== "error") return;
+    const myStart = ++this.startToken;
     this.setState("processing");
-    try {
-      const transcript = await this._transcribe(blob);
-      if (!transcript) {
-        voiceTranscriptEl.textContent = "Didn't catch that — tap to try again.";
-        this.setState("idle");
-        return;
-      }
-      voiceTranscriptEl.textContent = transcript;
-      addMessage(transcript, "user"); // keep Voice Mode turns in the same chat log
+    voiceTranscriptEl.textContent = "";
 
-      const reply = await sendToNexus(transcript);
-      addMessage(reply, "bot");
-      await this.speak(reply);
+    // Create the audio contexts right away, inside the tap, so the browser's
+    // autoplay rules count it as a user gesture.
+    const AC = window.AudioContext || window.webkitAudioContext;
+    this.outCtx = new AC();
+    this.micCtx = new AC();
+    this.outCtx.resume().catch(() => {});
+    this.micCtx.resume().catch(() => {});
+
+    try {
+      // 1. Mic first: the token is only valid for ~2 minutes after it's minted.
+      try {
+        this.stream = await navigator.mediaDevices.getUserMedia({
+          audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        });
+      } catch (err) {
+        console.error("Mic access failed:", err);
+        throw new Error("Microphone access denied. Check your browser/site permissions.");
+      }
+      if (myStart !== this.startToken) return this._cleanup();
+
+      // 2. One-use token (carries the personality + memory prompt).
+      const res = await fetch(`${API_URL}/voice/live-token`, {
+        method: "POST",
+        headers: authHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ session_id: currentSessionId }),
+      });
+      if (res.status === 401) { goToLogin(); throw new Error("Unauthorized"); }
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || `Voice setup failed (${res.status})`);
+      }
+      const { token, model } = await res.json();
+      if (myStart !== this.startToken) return this._cleanup();
+
+      // 3. Connect straight to Gemini Live.
+      const { GoogleGenAI } = await loadLiveSdk();
+      const ai = new GoogleGenAI({ apiKey: token, httpOptions: { apiVersion: "v1alpha" } });
+      this.userText = "";
+      this.modelText = "";
+      this.turnDone = false;
+      this.skipAudio = false;
+
+      let session = null;
+      let closedEarly = null;   // set if the socket dies before we finish wiring up
+      session = await ai.live.connect({
+        model,
+        // The real config is locked into the token; this just has to agree with it.
+        config: {
+          responseModalities: ["AUDIO"],
+          inputAudioTranscription: {},
+          outputAudioTranscription: {},
+        },
+        callbacks: {
+          onmessage: (msg) => this._onMessage(msg),
+          onerror: (e) => console.error("Live error:", e),
+          onclose: (e) => {
+            if (this.session !== session) { closedEarly = e || {}; return; } // not live yet, or we closed it ourselves
+            console.warn("Live session closed:", e && (e.reason || e.code));
+            const reason = e && e.reason ? `: ${e.reason}` : "";
+            this.stop();
+            voiceTranscriptEl.textContent = `Voice session ended${reason}. Tap to start again.`;
+          },
+        },
+      });
+      if (myStart !== this.startToken) { try { session.close(); } catch {} return this._cleanup(); }
+      if (closedEarly) {
+        throw new Error(`Gemini closed the connection${closedEarly.reason ? ": " + closedEarly.reason : ""}`);
+      }
+      this.session = session;
+
+      // 4. Mic → 16 kHz PCM → Gemini.
+      await this.micCtx.audioWorklet.addModule(
+        URL.createObjectURL(new Blob([MIC_WORKLET_SRC], { type: "application/javascript" }))
+      );
+      const micSource = this.micCtx.createMediaStreamSource(this.stream);
+      this.micAnalyser = this.micCtx.createAnalyser();
+      this.micAnalyser.fftSize = 512;
+      this.workletNode = new AudioWorkletNode(this.micCtx, "pcm16-capture");
+      const mute = this.micCtx.createGain();
+      mute.gain.value = 0; // keeps the worklet pulled without echoing the mic
+      micSource.connect(this.micAnalyser);
+      micSource.connect(this.workletNode);
+      this.workletNode.connect(mute).connect(this.micCtx.destination);
+      this.workletNode.port.onmessage = (e) => {
+        if (!this.session) return;
+        try {
+          this.session.sendRealtimeInput({
+            audio: { data: bytesToBase64(new Uint8Array(e.data)), mimeType: "audio/pcm;rate=16000" },
+          });
+        } catch (err) { /* socket closing */ }
+      };
+
+      // 5. Playback chain (for the speaking waveform).
+      this.outAnalyser = this.outCtx.createAnalyser();
+      this.outAnalyser.fftSize = 512;
+      this.outAnalyser.connect(this.outCtx.destination);
+
+      this.setState("listening");
+      this._startWaveform();
     } catch (err) {
-      console.error("Voice pipeline error:", err);
-      voiceTranscriptEl.textContent = "Something went wrong. Tap to try again.";
+      console.error("Voice start failed:", err);
+      this._cleanup();
+      voiceTranscriptEl.textContent = err.message || "Couldn't start voice mode.";
       this.setState("error");
     }
   }
 
-  async _transcribe(blob) {
-    const form = new FormData();
-    form.append("audio", blob, "utterance.webm");
+  // ── Incoming messages from Gemini ────────────────────────────────────────
+  _onMessage(msg) {
+    const sc = msg.serverContent;
+    if (!sc) return;
 
-    const res = await fetch(`${API_URL}/voice/stt`, {
-      method: "POST",
-      headers: authHeaders(), // do NOT set Content-Type manually; browser sets multipart boundary
-      body: form,
-    });
-
-    if (res.status === 401) { goToLogin(); throw new Error("Unauthorized"); }
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || `STT failed: ${res.status}`);
+    if (sc.interrupted) {            // the user talked over Nexus
+      this._flushPlayback();
+      this.skipAudio = false;
+      this._finishTurn();
+      this._setListening();
     }
 
-    const data = await res.json();
-    return (data.transcript || "").trim();
-  }
+    const inText = sc.inputTranscription && sc.inputTranscription.text;
+    if (inText) {
+      if (this.modelText) this._finishTurn(); // Nexus already answered, so this is a new turn
+      this.userText += inText;
+      if (this.state !== "speaking") voiceTranscriptEl.textContent = this.userText;
+    }
 
-  // ── Speaking / TTS ───────────────────────────────────────────────────────
-  async speak(text) {
-    if (!text) { this.setState("idle"); return; }
+    const parts = (sc.modelTurn && sc.modelTurn.parts) || [];
+    for (const p of parts) {
+      if (p.inlineData && p.inlineData.data) this._enqueueAudio(p.inlineData);
+    }
 
-    this.setState("speaking");
-    voiceTranscriptEl.textContent = text;
+    const outText = sc.outputTranscription && sc.outputTranscription.text;
+    if (outText) {
+      this.modelText += outText;
+      if (this.state === "speaking") voiceTranscriptEl.textContent = this.modelText;
+    }
 
-    // Arm barge-in: listen for the user's mic level while Nexus talks, without
-    // running STT on it. Any sustained voice activity interrupts playback.
-    await this._armBargeIn();
-
-    return new Promise((resolve) => {
-      synth.cancel(); // clear any queued utterances
-      const utter = new SpeechSynthesisUtterance(text);
-      utter.rate = 1.0;
-      utter.pitch = 1.0;
-      this.utterance = utter;
-
-      utter.onend = () => {
-        this._disarmBargeIn();
-        if (this.state === "speaking") this.setState("idle");
-        resolve();
-      };
-      utter.onerror = () => {
-        this._disarmBargeIn();
-        this.setState("idle");
-        resolve();
-      };
-
-      synth.speak(utter);
-    });
-  }
-
-  async _armBargeIn() {
-    try {
-      this.bargeInStream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-      });
-      this.bargeInArmed = true;
-      this._attachAnalyser(this.bargeInStream, {
-        onVoiceActivity: () => {
-          if (this.bargeInArmed && this.state === "speaking") this.interrupt();
-        },
-        activityThreshold: 22, // higher than silence threshold — only real speech interrupts
-      });
-    } catch {
-      // If mic isn't available for barge-in, just skip it — TTS still plays fine.
-      this.bargeInArmed = false;
+    if (sc.turnComplete) {
+      this.turnDone = true;
+      this.skipAudio = false;
+      this._finishTurn();
+      if (this.sources.size === 0) this._setListening();
     }
   }
 
-  _disarmBargeIn() {
-    this.bargeInArmed = false;
-    this._stopAnalyser();
-    this.bargeInStream?.getTracks().forEach((t) => t.stop());
-    this.bargeInStream = null;
+  _enqueueAudio(inlineData) {
+    if (this.skipAudio || !this.outCtx) return;
+    if (this.state !== "speaking") {
+      this.setState("speaking");
+      voiceTranscriptEl.textContent = this.modelText;
+    }
+    this.turnDone = false;
+
+    const m = /rate=(\d+)/.exec(inlineData.mimeType || "");
+    const rate = m ? parseInt(m[1], 10) : 24000;
+    const bytes = base64ToBytes(inlineData.data);
+    const i16 = new Int16Array(bytes.buffer, bytes.byteOffset, Math.floor(bytes.byteLength / 2));
+    const f32 = new Float32Array(i16.length);
+    for (let i = 0; i < i16.length; i++) f32[i] = i16[i] / 32768;
+
+    const buf = this.outCtx.createBuffer(1, f32.length, rate); // browser resamples to the output rate
+    buf.copyToChannel(f32, 0);
+    const src = this.outCtx.createBufferSource();
+    src.buffer = buf;
+    src.connect(this.outAnalyser);
+
+    this.nextTime = Math.max(this.nextTime, this.outCtx.currentTime + 0.02);
+    src.start(this.nextTime);
+    this.nextTime += buf.duration;
+
+    this.sources.add(src);
+    src.onended = () => {
+      this.sources.delete(src);
+      if (this.sources.size === 0 && this.turnDone) this._setListening();
+    };
   }
 
-  interrupt() {
-    synth.cancel();
-    this._disarmBargeIn();
-    this.startListening();
+  _flushPlayback() {
+    this.sources.forEach((s) => { s.onended = null; try { s.stop(); } catch {} });
+    this.sources.clear();
+    this.nextTime = 0;
   }
 
-  // ── Shared analyser: drives waveform + silence detection + barge-in ────────
-  _attachAnalyser(stream, {
-    onSilence,
-    onVoiceActivity,
-    onNoSpeechTimeout,
-    silenceMs = 900,
-    silenceThreshold = 10,
-    speechThreshold = 14,
-    activityThreshold = 22,
-    noSpeechTimeoutMs = null,
-    maxListenMs = null,
-  } = {}) {
-    this._stopAnalyser();
-    this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    const source = this.audioCtx.createMediaStreamSource(stream);
-    this.analyser = this.audioCtx.createAnalyser();
-    this.analyser.fftSize = 512;
-    source.connect(this.analyser);
+  _setListening() {
+    if (this.session && this.state !== "listening") {
+      this.setState("listening");
+      voiceTranscriptEl.textContent = "";
+    }
+  }
 
-    const data = new Uint8Array(this.analyser.frequencyBinCount);
-    let silenceStart = null;
-    let speechDetected = false;
-    const startedAt = performance.now();
+  // ── Turn bookkeeping: show it in the chat log and save it server-side ───
+  _finishTurn() {
+    const u = this.userText.trim();
+    const a = this.modelText.trim();
+    this.userText = "";
+    this.modelText = "";
+    const turns = [];
+    if (u) { addMessage(u, "user"); turns.push({ role: "user", content: u }); }
+    if (a) { addMessage(a, "bot");  turns.push({ role: "assistant", content: a }); }
+    if (turns.length) this._saveTurns(turns);
+  }
 
+  _saveTurns(turns) {
+    // Chained so turns are saved in order and each one sees the latest session id.
+    this.saveChain = this.saveChain.then(async () => {
+      try {
+        const res = await fetch(`${API_URL}/voice/transcript`, {
+          method: "POST",
+          headers: authHeaders({ "Content-Type": "application/json" }),
+          body: JSON.stringify({ session_id: currentSessionId, turns }),
+        });
+        if (res.status === 401) { goToLogin(); return; }
+        if (!res.ok) throw new Error(`Save failed: ${res.status}`);
+        const data = await res.json();
+        if (data.session_id) {
+          const isNew = !currentSessionId;
+          currentSessionId = data.session_id;
+          await loadConversations();
+          if (isNew) setActiveInSidebar(currentSessionId);
+        }
+      } catch (err) {
+        console.error("Could not save voice transcript:", err);
+      }
+    });
+  }
+
+  // ── Orb tap ──────────────────────────────────────────────────────────────
+  onOrbTap() {
+    if (this.state === "idle" || this.state === "error") {
+      this.start();
+    } else if (this.state === "speaking") {
+      // Stop talking now and drop the rest of this answer. (Talking over Nexus does the same.)
+      this._flushPlayback();
+      this.skipAudio = true;
+      this._setListening();
+    } else if (this.state === "listening") {
+      this.stop();
+    }
+    // "processing" (connecting): ignore taps
+  }
+
+  // ── Waveform ─────────────────────────────────────────────────────────────
+  _startWaveform() {
+    const data = new Uint8Array(256);
     const tick = () => {
-      this.analyser.getByteTimeDomainData(data);
-      const rms = Math.sqrt(data.reduce((s, v) => s + (v - 128) ** 2, 0) / data.length);
-      this._drawWaveform(data);
-
-      if (onSilence) {
-        // Don't start the "user has gone quiet" countdown until we've actually
-        // heard them start talking — otherwise the natural beat of silence
-        // right after tapping the mic gets misread as "done speaking" and we
-        // ship near-empty audio to the STT model, which then hallucinates.
-        if (!speechDetected) {
-          if (rms > speechThreshold) {
-            speechDetected = true;
-            silenceStart = null;
-          } else if (onNoSpeechTimeout && noSpeechTimeoutMs && performance.now() - startedAt > noSpeechTimeoutMs) {
-            onNoSpeechTimeout();
-            return;
-          }
-        } else {
-          if (rms < silenceThreshold) {
-            if (silenceStart === null) silenceStart = performance.now();
-            else if (performance.now() - silenceStart > silenceMs) { onSilence(); return; }
-          } else {
-            silenceStart = null;
-          }
-        }
-
-        if (maxListenMs && performance.now() - startedAt > maxListenMs) {
-          if (speechDetected) onSilence();
-          else if (onNoSpeechTimeout) onNoSpeechTimeout();
-          return;
-        }
+      const analyser = this.state === "speaking" ? this.outAnalyser : this.micAnalyser;
+      if (analyser) {
+        analyser.getByteTimeDomainData(data);
+        this._drawWaveform(data);
       }
-
-      if (onVoiceActivity && rms > activityThreshold) {
-        onVoiceActivity();
-      }
-
       this.rafId = requestAnimationFrame(tick);
     };
+    cancelAnimationFrame(this.rafId);
     tick();
-  }
-
-  _stopAnalyser() {
-    if (this.rafId) cancelAnimationFrame(this.rafId);
-    this.rafId = null;
-    if (this.audioCtx) { this.audioCtx.close().catch(() => {}); this.audioCtx = null; }
-    this.analyser = null;
   }
 
   _drawWaveform(timeDomainData) {
@@ -772,33 +853,37 @@ class VoiceModeController {
     voiceWaveformSvg.innerHTML = path;
   }
 
-  teardown() {
-    synth.cancel();
-    this._stopAnalyser();
-    this.stream?.getTracks().forEach((t) => t.stop());
-    this.bargeInStream?.getTracks().forEach((t) => t.stop());
-    this.stream = null;
-    this.bargeInStream = null;
-    if (this.recorder && this.recorder.state !== "inactive") {
-      try { this.recorder.stop(); } catch { /* already stopped */ }
-    }
+  // ── Shutdown ─────────────────────────────────────────────────────────────
+  stop() {
+    this.startToken++;               // cancels any start() still in flight
+    this._finishTurn();              // keep whatever was said so far
+    const s = this.session;
+    this.session = null;             // set first so onclose knows we did this
+    if (s) { try { s.close(); } catch {} }
+    this._cleanup();
     this.setState("idle");
+  }
+
+  _cleanup() {
+    this._flushPlayback();
+    cancelAnimationFrame(this.rafId);
+    this.rafId = null;
+    if (this.workletNode) { this.workletNode.port.onmessage = null; try { this.workletNode.disconnect(); } catch {} }
+    this.workletNode = null;
+    this.stream?.getTracks().forEach((t) => t.stop());
+    this.stream = null;
+    if (this.micCtx) { this.micCtx.close().catch(() => {}); this.micCtx = null; }
+    if (this.outCtx) { this.outCtx.close().catch(() => {}); this.outCtx = null; }
+    this.micAnalyser = null;
+    this.outAnalyser = null;
+    voiceWaveformSvg.innerHTML = "";
   }
 }
 
 const voiceMode = new VoiceModeController();
 
 // ── Orb interactions ──────────────────────────────────────────────────────
-voiceOrb.addEventListener("click", () => {
-  if (voiceMode.state === "idle" || voiceMode.state === "error") {
-    voiceMode.startListening();
-  } else if (voiceMode.state === "listening") {
-    voiceMode.finishListening();
-  } else if (voiceMode.state === "speaking") {
-    voiceMode.interrupt();
-  }
-  // "processing" state: ignore taps, nothing to do mid-flight
-});
+voiceOrb.addEventListener("click", () => voiceMode.onOrbTap());
 
 // ── Open / close ──────────────────────────────────────────────────────────
 micBtn.addEventListener("click", () => voiceMode.open());
@@ -806,6 +891,7 @@ voiceBackBtn.addEventListener("click", () => voiceMode.close());
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && voiceOverlay.classList.contains("open")) voiceMode.close();
 });
+window.addEventListener("pagehide", () => voiceMode.stop());
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 (async () => {
