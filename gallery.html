@@ -341,12 +341,18 @@
         " · " + d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
     }
 
-    // ---------- inline auth gate: redirect to sign-in if no session ----------
+    // ---------- auth gate: needs a session AND an unlocked OS (same as Core, Writer, Calendar) ----------
+    const LOCK_URL = "https://ravda-boeing.github.io/SinkOSAuth/lockscreen.html";
+
+    function goToLock() {
+      try { sessionStorage.setItem("sinkos_return_to", window.location.href); } catch (_) {}
+      window.location.href = `${LOCK_URL}?redirect_to=${encodeURIComponent(window.location.href)}`;
+    }
+
     async function requireAuth() {
       const { data: { session } } = await sb.auth.getSession();
-      if (!session?.user) {
-        const redirect = encodeURIComponent(window.location.href);
-        window.location.href = `login.html?redirect_to=${redirect}`;
+      if (!session?.user || !sessionStorage.getItem("sinkos_unlocked")) {
+        goToLock();
         return null;
       }
       return session.user;
@@ -460,10 +466,7 @@
       await loadPhotos();
 
       sb.auth.onAuthStateChange((_event, session) => {
-        if (!session?.user) {
-          const redirect = encodeURIComponent(window.location.href);
-          window.location.href = `login.html?redirect_to=${redirect}`;
-        }
+        if (!session?.user) goToLock();
       });
     })();
   </script>
