@@ -471,6 +471,19 @@ const voiceOrb          = document.getElementById("voice-orb");
 const voiceStatusText   = document.getElementById("voice-status-text");
 const voiceTranscriptEl = document.getElementById("voice-transcript-text");
 const voiceWaveformSvg  = document.getElementById("voice-waveform");
+const voicePicker       = document.getElementById("voice-picker");
+
+// Gemini's prebuilt voices with Google's one-word descriptions. "" = Nexus's default voice.
+const NEXUS_VOICES = [
+  ["Zephyr", "Bright"], ["Kore", "Firm"], ["Orus", "Firm"], ["Autonoe", "Bright"],
+  ["Umbriel", "Easy-going"], ["Erinome", "Clear"], ["Laomedeia", "Upbeat"], ["Schedar", "Even"],
+  ["Achird", "Friendly"], ["Sadachbia", "Lively"], ["Puck", "Upbeat"], ["Fenrir", "Excitable"],
+  ["Aoede", "Breezy"], ["Enceladus", "Breathy"], ["Algieba", "Smooth"], ["Algenib", "Gravelly"],
+  ["Achernar", "Soft"], ["Gacrux", "Mature"], ["Zubenelgenubi", "Casual"], ["Sadaltager", "Knowledgeable"],
+  ["Charon", "Informative"], ["Leda", "Youthful"], ["Callirrhoe", "Easy-going"], ["Iapetus", "Clear"],
+  ["Despina", "Smooth"], ["Rasalgethi", "Informative"], ["Alnilam", "Firm"], ["Pulcherrima", "Forward"],
+  ["Vindemiatrix", "Gentle"], ["Sulafat", "Warm"],
+];
 
 const VOICE_STATE_LABELS = {
   idle:       "Tap to start talking",
@@ -559,6 +572,8 @@ class VoiceModeController {
 
   setState(state, label) {
     this.state = state;
+    // The voice is fixed once a session starts, so only allow changing it between sessions.
+    if (voicePicker) voicePicker.disabled = !(state === "idle" || state === "error");
     voiceOrb.dataset.state = state;
     voiceStatusText.textContent = label || VOICE_STATE_LABELS[state] || "";
   }
@@ -885,6 +900,30 @@ class VoiceModeController {
 }
 
 const voiceMode = new VoiceModeController();
+
+// ── Voice picker ──────────────────────────────────────────────────────────
+// The choice is saved in this browser and sent with the next voice session.
+if (voicePicker) {
+  const addOption = (value, text) => {
+    const o = document.createElement("option");
+    o.value = value;
+    o.textContent = text;
+    voicePicker.appendChild(o);
+  };
+  addOption("", "Default");
+  NEXUS_VOICES.forEach(([name, desc]) => addOption(name, `${name} · ${desc}`));
+
+  let saved = "";
+  try { saved = localStorage.getItem("nexusVoice") || ""; } catch {}
+  voicePicker.value = NEXUS_VOICES.some(([n]) => n === saved) ? saved : "";
+
+  voicePicker.addEventListener("change", () => {
+    try {
+      if (voicePicker.value) localStorage.setItem("nexusVoice", voicePicker.value);
+      else localStorage.removeItem("nexusVoice");
+    } catch {}
+  });
+}
 
 // ── Orb interactions ──────────────────────────────────────────────────────
 voiceOrb.addEventListener("click", () => voiceMode.onOrbTap());
