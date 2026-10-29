@@ -579,6 +579,39 @@
       color: #c8d8ff;
       font-weight: 500;
     }
+
+    /* Voice picker (bottom of the voice overlay) */
+    .voice-picker-wrap {
+      position: absolute;
+      bottom: 32px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+    }
+    .voice-picker-label {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      color: rgba(255,255,255,0.45);
+      text-transform: uppercase;
+    }
+    #voice-picker {
+      min-width: 230px;
+      padding: 8px 12px;
+      border-radius: 8px;
+      background: rgba(79,140,255,0.1);
+      border: 1px solid rgba(79,140,255,0.3);
+      color: #c8d8ff;
+      font-family: inherit;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    #voice-picker:hover:not(:disabled) { background: rgba(79,140,255,0.22); }
+    #voice-picker:disabled { opacity: 0.45; cursor: not-allowed; }
+    #voice-picker option { background: #0a0f2b; color: #c8d8ff; }
   </style>
 </head>
 
@@ -669,6 +702,11 @@
 
       <p id="voice-status-text" aria-live="polite">Tap to speak</p>
       <p id="voice-transcript-text" class="voice-transcript"></p>
+    </div>
+
+    <div class="voice-picker-wrap">
+      <label for="voice-picker" class="voice-picker-label">Nexus voice</label>
+      <select id="voice-picker" aria-label="Nexus voice"></select>
     </div>
   </div>
 
