@@ -604,17 +604,20 @@ class VoiceModeController {
       if (myStart !== this.startToken) return this._cleanup();
 
       // 2. One-use token (carries the personality + memory prompt).
+      // To audition a voice, run localStorage.nexusVoice = "Puck" in the console, then start a new session.
+      let wantedVoice = null;
+      try { wantedVoice = localStorage.getItem("nexusVoice"); } catch {}
       const res = await fetch(`${API_URL}/voice/live-token`, {
         method: "POST",
         headers: authHeaders({ "Content-Type": "application/json" }),
-        body: JSON.stringify({ session_id: currentSessionId }),
+        body: JSON.stringify({ session_id: currentSessionId, voice: wantedVoice }),
       });
       if (res.status === 401) { goToLogin(); throw new Error("Unauthorized"); }
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.detail || `Voice setup failed (${res.status})`);
       }
-      const { token, model } = await res.json();
+      const { token, model, voice } = await res.json();
       if (myStart !== this.startToken) return this._cleanup();
 
       // 3. Connect straight to Gemini Live.
@@ -634,6 +637,7 @@ class VoiceModeController {
           responseModalities: ["AUDIO"],
           inputAudioTranscription: {},
           outputAudioTranscription: {},
+          ...(voice ? { speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } } } : {}),
         },
         callbacks: {
           onmessage: (msg) => this._onMessage(msg),
