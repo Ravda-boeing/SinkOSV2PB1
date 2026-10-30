@@ -1781,17 +1781,10 @@ function bindAppEvents() {
   });
 
   document.getElementById("core-signout-btn").addEventListener("click", async () => {
-    localStorage.removeItem("sinkos_unlocked");
+    sessionStorage.removeItem("sinkos_unlocked");
     await sb.auth.signOut();
     location.reload();
   });
-}
-
-async function sha256Hex(text) {
-  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
-  return Array.from(new Uint8Array(buf))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
 }
 
 function showGateStep(step) {
@@ -1802,131 +1795,111 @@ function showGateStep(step) {
 
 async function enterApp() {
   try {
-    console.log("📍 enterApp: hiding auth gate");
     document.getElementById("core-auth-gate").style.display = "none";
-    
-    console.log("📍 enterApp: showing app");
     document.getElementById("core-app").style.display = "flex";
-    
-    console.log("📍 enterApp: initializing share");
     initShare();
-    
-    console.log("📍 enterApp: binding app events");
     bindAppEvents();
-    
-    console.log("📍 enterApp: setting currentFolderId");
     currentFolderId = currentParentId();
-    
-    console.log("📍 enterApp: calling refresh");
     await refresh();
-    
-    console.log("✓ enterApp: all steps completed");
   } catch (err) {
-    console.error("✗ enterApp failed at some step:", err);
+    console.error("Core: enterApp failed", err);
     throw err;
   }
 }
 
+// The lockscreen (SinkOSAuth) sets this in sessionStorage after the server confirms the OS password.
+const UNLOCK_KEY = "sinkos_unlocked";
+
 async function initAuthGate() {
-  console.log("🚀 initAuthGate() CALLED - script loaded");
-  
-  // Listen for any auth state changes
-  sb.auth.onAuthStateChange((event, session) => {
-    console.log("🔔 AUTH STATE CHANGED:", event, session?.user?.id);
-  });
-  
+  SinkOSSecurity.init(sb);
+
   document.getElementById("core-auth-gate").style.display = "flex";
   showGateStep("checking");
-
-  // DEBUG: Log auth values
-  console.log("📋 About to call getSession()");
-  const sess = await sb.auth.getSession();
-  const userId = sess.data?.session?.user?.id;
-  const stored = localStorage.getItem("sinkos_unlocked");
-  console.log("🔍 AUTH DEBUG:", { userId, stored, match: userId === stored });
-  
-  // Delay 10 seconds so you can read console
-  console.log("⏱️ Starting 10-second delay...");
-  await new Promise(r => setTimeout(r, 10000));
-  
-  console.log("⏱️ Delay complete, continuing auth flow...");
-  console.log("⏱️ About to fetch session again");
 
   const {
     data: { session },
   } = await sb.auth.getSession();
-  
-  console.log("📍 Got session:", session?.user?.id);
 
   if (!session) {
     showGateStep("signin");
-    document.getElementById("core-auth-signin-btn").addEventListener("click", async () => {
+    const signInBtn = document.getElementById("core-auth-signin-btn");
+    const errEl = document.getElementById("core-auth-error2");
+    const doSignIn = async () => {
       const email = document.getElementById("core-auth-email").value.trim();
       const password = document.getElementById("core-auth-password").value;
-      const errEl = document.getElementById("core-auth-error2");
       errEl.textContent = "";
+      if (!email || !password) {
+        errEl.textContent = "Enter your email and password.";
+        return;
+      }
+      signInBtn.disabled = true;
       const { error } = await sb.auth.signInWithPassword({ email, password });
+      signInBtn.disabled = false;
       if (error) {
         errEl.textContent = error.message;
         return;
       }
       location.reload();
+    };
+    signInBtn.addEventListener("click", doSignIn);
+    document.getElementById("core-auth-password").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") doSignIn();
     });
     return;
   }
 
   currentUser = session.user;
 
-  console.log("📋 Querying profile for user:", session.user.id);
-  console.log("📋 Using Supabase URL:", SUPABASE_URL);
-  console.log("📋 Query: SELECT os_password_hash FROM profiles WHERE id =", session.user.id);
-  
-  const { data: profile, error: profileError, status, statusText } = await sb
-    .from("profiles")
-    .select("os_password_hash")
-    .eq("id", session.user.id)
-    .single();
-
-  console.log("📋 Query returned:", { status, statusText, profile, profileError });
-  
-  if (profileError) {
-    console.error("❌ Profile query ERROR:", profileError);
-    console.error("❌ Error code:", profileError.code);
-    console.error("❌ Error message:", profileError.message);
-  }
-
-  if (!profile) {
-    console.log("⚠️ No profile found. Redirecting to onboarding.");
-    console.log("⚠️ profile is:", profile);
-    console.log("⚠️ profileError is:", profileError);
-    location.href = `${SINKOS_AUTH_BASE}/onboarding.html?redirect_to=${encodeURIComponent(location.href)}`;
-    return;
-  }
-  console.log("✓ Profile loaded, os_password_hash exists");
-
-  if (localStorage.getItem("sinkos_unlocked") === session.user.id) {
-    console.log("✓ Auth match passed, entering app");
+  // Already unlocked this browser session (via the lockscreen or another module).
+  if (sessionStorage.getItem(UNLOCK_KEY)) {
     await enterApp();
     return;
   }
 
-  // Auth not unlocked, show password prompt
-  console.log("🔐 Auth unlock needed, showing password prompt");
   showGateStep("unlock");
-  document.getElementById("core-auth-unlock-btn").addEventListener("click", async () => {
-    const pw = document.getElementById("core-auth-pw").value;
-    const errEl = document.getElementById("core-auth-error");
+  const unlockBtn = document.getElementById("core-auth-unlock-btn");
+  const pwInput = document.getElementById("core-auth-pw");
+  const errEl = document.getElementById("core-auth-error");
+
+  const attemptUnlock = async () => {
+    const pw = pwInput.value;
     errEl.textContent = "";
-    const hash = await sha256Hex(pw);
-    if (hash === profile.os_password_hash) {
-      localStorage.setItem("sinkos_unlocked", session.user.id);
-      currentUser = session.user;
-      await enterApp();
-    } else {
-      errEl.textContent = "Incorrect password.";
+    if (!pw) return;
+
+    unlockBtn.disabled = true;
+    try {
+      const result = await SinkOSSecurity.verifyOsPassword(pw);
+
+      if (result.ok) {
+        sessionStorage.setItem(UNLOCK_KEY, String(Date.now()));
+        await enterApp();
+        return;
+      }
+
+      pwInput.value = "";
+      if (result.no_password) {
+        location.href = `${SINKOS_AUTH_BASE}/onboarding.html?redirect_to=${encodeURIComponent(location.href)}`;
+      } else if (result.locked) {
+        errEl.textContent = `Too many attempts. Try again in ${Math.ceil((result.retry_after || 900) / 60)} min.`;
+      } else if (result.error) {
+        errEl.textContent = "Could not verify right now. Try again.";
+      } else {
+        const left = result.attempts_left;
+        errEl.textContent =
+          typeof left === "number"
+            ? `Incorrect password. ${left} attempt${left === 1 ? "" : "s"} left.`
+            : "Incorrect password.";
+      }
+    } finally {
+      unlockBtn.disabled = false;
     }
+  };
+
+  unlockBtn.addEventListener("click", attemptUnlock);
+  pwInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") attemptUnlock();
   });
+  pwInput.focus();
 }
 
-console.log("📄 core.js fully loaded, calling initAuthGate()...");
 initAuthGate();
